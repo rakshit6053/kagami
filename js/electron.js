@@ -233,3 +233,15 @@ if (["localhost", "127.0.0.1", "::1", "::ffff:127.0.0.1", undefined].includes(co
 		});
 	});
 }
+
+// Global exception handler to swallow specific recorder or write errors
+process.on("uncaughtException", (err) => {
+	if (
+		(err.code === "ERR_UNHANDLED_ERROR" && typeof err.context === "string" && err.context.includes("arecord has exited"))
+		|| (err.code === "EFAULT" && err.syscall === "write")
+	) {
+		console.warn(`[${new Date().toISOString()}] WARN (Electron): Swallowed exception: ${err.code || err.message || err}`);
+		return;
+	}
+	throw err;
+});
