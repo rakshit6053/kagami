@@ -40,6 +40,7 @@ module.exports = NodeHelper.create({
     apiKey: null,
     recordingProcess: null,
     isRecording: false,
+    isMuted: false,
     audioQueue: [],
     persistentSpeaker: null,
     processingQueue: false,
@@ -53,6 +54,7 @@ module.exports = NodeHelper.create({
     reconnectDelay: 5000,
     isPermanentlyDisconnected: false,
     liveSessionReady: false,
+    userLocation: null,
 
     // Logger functions
     log: function(...args) { console.log(`[${new Date().toISOString()}] LOG (${this.name}):`, ...args) },
@@ -66,6 +68,7 @@ module.exports = NodeHelper.create({
         this.liveSession = null
         this.recordingProcess = null
         this.isRecording = false
+        this.isMuted = false
         this.audioQueue = []
         this.persistentSpeaker = null
         this.processingQueue = false
@@ -135,7 +138,7 @@ module.exports = NodeHelper.create({
             this.warn(`Connection already open or in progress. Open: ${this.connectionOpen}, Connecting: ${this.geminiConnecting}`);
             if (this.connectionOpen && !this.isRecording) { // Connection is open, but not recording, try to start recording
                 this.log("Connection is open, attempting to start recording.");
-                this.startRecording();
+                this.startRecording()
             }
             return;
         }
@@ -234,7 +237,45 @@ module.exports = NodeHelper.create({
                         },
                     },
                     systemInstruction: {
-                        parts: [ { text: 'Your name is Kagami. You are a helpful and knowledgeable virtual assistant designed to make daily life easier. You have a friendly, approachable personality and genuinely enjoy helping people with their questions, tasks, and providing useful information. When you break from a story to show an image from the story, please continue telling the story after calling the function without needing to be prompted. This also applies if you are interrupted to show an image. You should try to continue with informative explanations without requiring constant user input. Provide relevant, practical information about day-to-day questions and tasks. Your default language is English, but you should respond in the input audio language from the speaker if you detect a non-English language. You must respond unmistakably in the language that the speaker inputs via audio, please.' }],
+                        parts: [ { text: `You are Kagami — a calm, intelligent voice assistant embedded in a smart mirror.
+
+Purpose:
+You assist users with brief, natural responses to everyday questions. People may speak to you casually while getting ready or walking by — so your answers must be clear, concise, and voice-optimized.
+
+Smart Mirror Context:
+You're not a chatbot or phone assistant. Your tone is always calm, helpful, and subtly warm. 
+
+${this.userLocation ? `The user's primary location is latitude ${this.userLocation.lat} and longitude ${this.userLocation.lon}. STRICT INSTRUCTION: When the user asks specifically for "weather" or "weather forecast" and does NOT name a different city/location in their voice query, you MUST use this primary location (latitude ${this.userLocation.lat}, longitude ${this.userLocation.lon}) to get the weather information. All weather information, regardless of location, MUST be provided in Celsius. Do not default to any other location or unit for such weather requests. For other local information requests, use this primary location unless the user explicitly specifies another location.` : "The user has not specified a primary location. If asked for weather or local information, you must ask for clarification (e.g., 'For what location?'). If providing weather after clarification, it MUST be in Celsius."}
+
+What You Can Do:
+Respond to general-purpose queries, including:
+- Current time and date
+- Local or global weather updates (If the user asks for "weather" or "weather forecast" without specifying a location in their query, use their primary location if available and provide the temperature in Celsius. Otherwise, ask for clarification; if weather is then given, it MUST be in Celsius.)
+- Quick facts, definitions, or calculations
+- Calendar-related info (e.g., "What day is it?")
+- Motivational quotes, jokes, or fun facts
+- Casual small talk or greetings
+
+Light Entertainment:
+You're also allowed to keep things fun with short, spoken games or entertainment such as:
+- Movie or music trivia
+- Quick riddles
+- "Did you know?" facts
+- This Day in History
+- Two-line guessing games (e.g., "Guess the movie: A ship hits an iceberg…")
+
+Tone:
+- Friendly, brief, and conversational
+- Never robotic or overly formal
+- A touch of charm or wit is good maybe some sarcasm!
+- Avoid sounding like a search engine or AI model
+
+Final Note:
+Kagami should feel like a calm, intelligent presence — always helpful, never intrusive. Think smart, speak simply, stay present.
+
+Your default language is English, but you should respond in the input audio language from the speaker if you detect a non-English language. You must respond unmistakably in the language that the speaker inputs via audio.
+
+` }],
                     },
                     tools: [{
                         googleSearch: {},
@@ -281,17 +322,52 @@ module.exports = NodeHelper.create({
     // Handle messages from the module frontend
     socketNotificationReceived: async function(notification, payload) {
         switch (notification) {
-            case "START_CONNECTION": // This will now only initialize API instances
-                this.log('>>> socketNotificationReceived: Handling START_CONNECTION (Initialize API Instances)');
+            case "INIT": // Notification from MMM-Gemini.js with API key and location
+                this.log('>>> socketNotificationReceived: Handling INIT');
+                if (payload.apiKey) {
+                    this.apiKey = payload.apiKey;
+                    // Initialize API instances if not already done and apiKey is present
+                    if (!this.apiInitialized && !this.apiInitializing) {
+                        this.log("API key received via INIT, attempting to initialize API instances.");
+                        await this.initializeApiInstances(this.apiKey); 
+                    }
+                } else if (!this.apiKey) { // Only error if API key is still missing
+                    this.error('INIT received without API key and no key stored previously');
+                    this.sendToFrontend("HELPER_ERROR", { error: "API key not provided for instance initialization" });
+                    return;
+                }
+
+                if (payload.location) {
+                    this.userLocation = payload.location;
+                    this.log('User location received and stored:', this.userLocation);
+                } else {
+                    this.log('No location data received in INIT payload.');
+                }
+                break;
+            case "START_CONNECTION": // This is now mostly a legacy path, INIT should handle API key
+                this.log('>>> socketNotificationReceived: Handling START_CONNECTION (Legacy)');
                 if (!payload || !payload.apiKey) {
-                     this.error('START_CONNECTION received without API key');
-                     this.sendToFrontend("HELPER_ERROR", { error: "API key not provided by frontend for instance initialization" });
-                     return;
+                     this.log('START_CONNECTION received without API key, relying on key from INIT or previous.');
+                     if (!this.apiKey) {
+                        this.error('API key missing (not provided in START_CONNECTION or prior INIT).');
+                        this.sendToFrontend("HELPER_ERROR", { error: "API key not provided by frontend" });
+                        return;
+                     }
+                 } else {
+                    this.apiKey = payload.apiKey; // Update if provided
                  }
+
                 try { 
-                    await this.initializeApiInstances(payload.apiKey);
+                    // Ensure API instances are initialized before trying to connect
+                    if (!this.apiInitialized && !this.apiInitializing) {
+                        this.log("API not initialized during START_CONNECTION, attempting initialization.");
+                        await this.initializeApiInstances(this.apiKey);
+                    } else if (this.apiInitialized) {
+                        this.log("API already initialized, START_CONNECTION will ensure connection is attempted if needed.");
+                        // If API is initialized, but not connected, ACTIVATE_LISTENING should trigger connection.                        
+                    }
                 } catch (error) {
-                     this.error('>>> socketNotificationReceived: Error calling initializeApiInstances:', error);
+                     this.error('>>> socketNotificationReceived: Error calling initializeApiInstances from START_CONNECTION:', error);
                      this.sendToFrontend("HELPER_ERROR", { error: `Error initializing API instances: ${error.message}` });
                  }
                 break;
@@ -312,32 +388,78 @@ module.exports = NodeHelper.create({
                     }
                     return;
                 }
+                
+                // If recording is active but muted, just unmute
+                if (this.isRecording && this.isMuted) {
+                    this.log("Microphone already active but muted. Unmuting...");
+                    this.isMuted = false;
+                    this.sendToFrontend("RECORDING_STARTED");
+                    return;
+                }
+                
+                // If connection is open and ready, just start recording without establishing a new connection
+                if (this.connectionOpen && this.liveSession && this.liveSessionReady && !this.isRecording) {
+                    this.log("Connection already open and ready. Starting recording immediately.");
+                    this.startRecording();
+                    return;
+                }
+                
                 // Reset disconnect flag if user explicitly tries to activate, allowing new attempts
                 this.isPermanentlyDisconnected = false;
                 this.reconnectAttempts = 0; 
                 await this.establishLiveConnectionAndRecord();
                 break;
-            case "DEACTIVATE_LISTENING": // Placeholder for future use
+            case "MUTE_MICROPHONE":
+                this.log('>>> socketNotificationReceived: Handling MUTE_MICROPHONE');
+                if (this.isRecording) {
+                    this.log("Muting microphone by setting isMuted=true. User audio will stop sending. Assistant playback should continue.");
+                    this.isMuted = true; // This stops new audio from being sent to Gemini
+                    this.sendToFrontend("MICROPHONE_MUTED"); // UI update
+                    
+                    // Removed logic that cleared audioQueue and stopped processQueue
+                    // Muting user input should not forcibly stop assistant output.
+                } else {
+                    this.warn("Cannot mute microphone - not currently recording");
+                }
+                break;
+            case "DEACTIVATE_LISTENING": // Full disconnect - closes connection
                 this.log('>>> socketNotificationReceived: Handling DEACTIVATE_LISTENING');
-                this.stopRecording(true); // Stop recording
+                // Stop recording if active
+                if (this.isRecording) {
+                    this.stopRecording(true);
+                }
+                
                 if (this.liveSession && this.connectionOpen) {
                     this.log("Closing Live API session due to DEACTIVATE_LISTENING.");
-                    // this.liveSession.close(); // This would trigger onclose and its retry logic.
-                    // For a cleaner stop without immediate retry from DEACTIVATE:
                     this.isPermanentlyDisconnected = true; // Prevent onclose from auto-retrying this session
                     await this.liveSession.close();
                     this.connectionOpen = false;
                     this.liveSession = null;
                     this.sendToFrontend("GEMINI_DISCONNECTED");
-                     // Allow new connections upon next ACTIVATE_LISTENING
+                    // Allow new connections upon next ACTIVATE_LISTENING
                     setTimeout(() => { this.isPermanentlyDisconnected = false; }, 100); 
+                }
+                break;
+            case "STOP_RECORDING": // Now this actually stops the recording process completely
+                this.log('>>> socketNotificationReceived: Handling STOP_RECORDING');
+                this.stopRecording(false); // Stop recording but don't force close the connection
+                this.sendToFrontend("RECORDING_STOPPED");
+                
+                // If stopping recording during an assistant response, make sure we signal an interruption
+                if (this.processingQueue || this.audioQueue.length > 0) {
+                    this.log(">>> Handling STOP_RECORDING during active assistant response - signaling interruption");
+                    // Clear audio queue and stop any ongoing playback
+                    this.audioQueue = [];
+                    this.processQueue(true);
+                    // Signal readiness for new input
+                    this.sendToFrontend("GEMINI_TURN_COMPLETE", {});
                 }
                 break;
             // START_CONTINUOUS_RECORDING is removed as recording now starts via ACTIVATE_LISTENING->onopen
         }
     },
 
-    // // Start continuous audio recording and streaming
+    // Start continuous audio recording and streaming
     startRecording() {
         this.log(">>> startRecording called")
 
@@ -345,13 +467,20 @@ module.exports = NodeHelper.create({
             this.warn("startRecording called but already recording")
             return
         }
-        if (!this.connectionOpen || !this.liveSession || !this.liveSessionReady) {
-            this.error("Cannot start recording: Live session not open or not ready")
-            this.sendToFrontend("HELPER_ERROR", { error: "Cannot start recording: API connection not fully ready" })
-             return
+        if (!this.connectionOpen || !this.liveSession) {
+            this.error("Cannot start recording: Live session not open")
+            this.sendToFrontend("HELPER_ERROR", { error: "Cannot start recording: API connection not open" })
+            return
+        }
+        
+        // Always ensure liveSessionReady is true when we have a valid connection
+        if (this.connectionOpen && this.liveSession && !this.liveSessionReady) {
+            this.log("Connection is open but session wasn't marked ready. Fixing state.")
+            this.liveSessionReady = true;
         }
 
         this.isRecording = true
+        this.isMuted = false
         this.log(">>> startRecording: Sending RECORDING_STARTED to frontend")
         this.sendToFrontend("RECORDING_STARTED")
 
@@ -387,10 +516,17 @@ module.exports = NodeHelper.create({
 
             audioStream.on('data', async (chunk) => {
                 // Add detailed logging
-                this.log(`Audio chunk received: ${chunk.length} bytes`);
-
-                // Log the first few bytes for debugging
-                // this.log(`First 10 bytes: ${chunk.slice(0, 10).toString('hex')}`);
+                this.log(`Audio chunk received: ${chunk.length} bytes, muted: ${this.isMuted}`);
+                
+                // Instead of skipping completely when muted, we'll send an empty/silence buffer
+                // This keeps the audio stream to Gemini alive rather than "stopping" it
+                let audioToSend = chunk;
+                if (this.isMuted) {
+                    this.log(`Microphone is muted - sending silent buffer to maintain connection stream`);
+                    // Create a buffer of zeros (silence) with same size as typical chunk
+                    // This maintains the connection but doesn't send actual audio
+                    audioToSend = Buffer.alloc(chunk.length, 0);
+                }
 
                 // Restore the connection checks
                 if (!this.isRecording || !this.connectionOpen || !this.liveSession) {
@@ -406,7 +542,7 @@ module.exports = NodeHelper.create({
                     return // Skip empty chunks
                 }
 
-                const base64Chunk = chunk.toString('base64') // Restore encoding
+                const base64Chunk = audioToSend.toString('base64') // Encode the actual or silent audio
                 chunkCounter++ // Increment counter for valid chunks
 
                 // --- Start of Code to UN-Comment ---
@@ -419,14 +555,14 @@ module.exports = NodeHelper.create({
                         }
                     }
 
-                    // Log the payload size
-                    this.log(`Sending payload to Gemini: ${base64Chunk.length} bytes (base64)`);
+                    // Log the payload size with muted status
+                    this.log(`Sending payload to Gemini: ${base64Chunk.length} bytes (base64) [muted: ${this.isMuted}]`);
 
                     // Check liveSession again just before sending
                     if (this.liveSession && this.connectionOpen) {
                         const sendStart = Date.now();
                         await this.liveSession.sendRealtimeInput(payloadToSend);
-                        this.log(`Send completed in ${Date.now() - sendStart}ms`);
+                        this.log(`Send completed in ${Date.now() - sendStart}ms [muted: ${this.isMuted}]`);
                     } else {
                         this.warn(`Cannot send chunk #${chunkCounter}, connection/session lost just before send`)
                         this.stopRecording(true) // Stop recording if connection lost
@@ -566,6 +702,13 @@ module.exports = NodeHelper.create({
                 if (wasRecording) {
                     this.log("Recording stop initiated. Sending RECORDING_STOPPED if process exits")
                     // Actual RECORDING_STOPPED is sent by the 'exit' handler or state correction logic
+                    
+                    // Ensure the connection is still considered ready for future recordings
+                    if (!force) {
+                        this.log("Ensuring session remains marked as ready for future recordings");
+                        // Reset any flags that might prevent future recordings
+                        this.sendToFrontend("RECORDING_STOPPED");
+                    }
                 } else {
                      this.log("Recording was already stopped or stopping, no state change needed")
                 }
@@ -643,49 +786,79 @@ module.exports = NodeHelper.create({
 
         // Handle the interrupt flag
         if(message?.serverContent?.interrupted) {
-            this.log("message: " + JSON.stringify(message))
-            this.log("*** Interrupting ***")
-            this.audioQueue = []
-            this.processQueue(true)
-            return
+            this.log(`Gemini message received: ${JSON.stringify(message)}`);
+            this.log("*** Gemini signaled 'interrupted:true'. This likely means user speech input ended or was cut short. Allowing any ongoing/pending Gemini speech to continue. Sending GEMINI_TURN_COMPLETE to frontend. ***");
+            
+            // We send GEMINI_TURN_COMPLETE so frontend can reset its state (e.g., prepare for new input)
+            // but we DO NOT clear the audioQueue or stop the processingQueue here.
+            // If Gemini intends to stop its own speech output, it will do so by ceasing to send audio chunks for that turn.
+            this.sendToFrontend("GEMINI_TURN_COMPLETE", { reason: "Gemini signaled user input interrupted/ended" });
+            
+            // If this message ONLY contains 'interrupted:true' and no other substantive content (like text or audio for THIS turn),
+            // we can return. This avoids processing an empty 'content' object below.
+            // Based on logs, 'interrupted:true' often comes as a standalone status within serverContent.
+            const keysInServerContent = Object.keys(message.serverContent);
+            const hasOnlyInterrupted = keysInServerContent.length === 1 && message.serverContent.interrupted === true;
+            const hasInterruptedAndTurnComplete = keysInServerContent.length === 2 && message.serverContent.interrupted === true && message.serverContent.hasOwnProperty('turnComplete');
+
+            if (hasOnlyInterrupted || hasInterruptedAndTurnComplete) {
+                 // If the 'interrupted' flag is the main piece of info (possibly with turnComplete),
+                 // we've handled it by sending GEMINI_TURN_COMPLETE.
+                 // Further processing of 'content' might not be relevant for this specific message.
+                 // However, let 'turnComplete' be handled by its own section if present.
+                 if (hasOnlyInterrupted && !message.serverContent.turnComplete) return; // Return if ONLY interrupted and no other useful payload for this immediate processing step
+            }
+            // If 'interrupted' comes with other content (e.g. a final text part), allow processing to continue.
         }
 
-        let content = message?.serverContent?.modelTurn?.parts?.[0]
+        let content = message?.serverContent?.modelTurn?.parts?.[0];
 
         // Handle Text
         if (content?.text) {
-            this.log(`Extracted text: ` + content.text)
-            this.sendToFrontend("GEMINI_TEXT_RESPONSE", { text: content.text })
+            this.log(`Extracted text: ` + content.text);
+            this.sendToFrontend("GEMINI_TEXT_RESPONSE", { text: content.text });
         }
 
         // Extract and Queue Audio Data
-        let extractedAudioData = content?.inlineData?.data
+        let extractedAudioData = content?.inlineData?.data;
         if (extractedAudioData) {
-            this.audioQueue.push(extractedAudioData)
+            this.log(`Received audio data from Gemini (base64 length: ${extractedAudioData.length}, isMuted: ${this.isMuted})`);
+            this.audioQueue.push(extractedAudioData);
+            this.log(`Audio queue length after push: ${this.audioQueue.length}`);
 
-            // --- Trigger Playback if Threshold Reached and Not Already Playing ---
             if (!this.processingQueue) {
-                this.log(`Starting playback`)
-                this.processQueue(false) // Start the playback loop
+                this.log(`Starting playback because audio received and queue not processing.`);
+                this.processQueue(false); // Start the playback loop
+            } else {
+                this.log(`Audio queued but playback already in progress (queue length: ${this.audioQueue.length})`);
             }
         }
 
-        let functioncall = message?.toolCall?.functionCalls?.[0]
+        let functioncall = message?.toolCall?.functionCalls?.[0];
         // Handle Function Calls
         if (functioncall) {
-            await this.handleFunctionCall(functioncall)
+            await this.handleFunctionCall(functioncall);
         }
 
-        // Check for Turn Completion (LOGGING ONLY when audio, clearing UI in text)
+        // Check for Turn Completion (can be separate from or accompany 'interrupted')
+        // We only want to send GEMINI_TURN_COMPLETE once if 'interrupted' already did so for this message.
+        // The 'interrupted' block above now sends GEMINI_TURN_COMPLETE.
+        // If 'turnComplete' is also true in a message that also had 'interrupted', we avoid sending it twice from here.
         if (message?.serverContent?.turnComplete) {
-            this.log("Turn complete signal received")
-            // Send turn complete notification (still useful for UI)
-            this.sendToFrontend("GEMINI_TURN_COMPLETE", {})
+            if (!message?.serverContent?.interrupted) { // Only if not already handled by the interrupted block for THIS message
+                this.log("Gemini signaled 'turnComplete:true' (and not 'interrupted' in the same message context that sent turn_complete).");
+                this.sendToFrontend("GEMINI_TURN_COMPLETE", { reason: "Gemini signaled full turn completion" });
+            } else {
+                this.log("Gemini signaled 'turnComplete:true' (likely alongside 'interrupted:true' which already sent a GEMINI_TURN_COMPLETE). No duplicate send.");
+            }
         }
     },
 
-    // // Process the audio queue for playback
+    // Process the audio queue for playback
     processQueue(interrupted) {
+        // Add detailed logging for queue processing events
+        this.log(`processQueue called with interrupted=${interrupted}, queue length=${this.audioQueue.length}, processingQueue=${this.processingQueue}, isMuted=${this.isMuted}`);
+        
         // 1. Check Stop Condition (Queue Empty)
         if (this.audioQueue.length === 0) {
             this.log("processQueue: Queue is empty. Playback loop ending")
@@ -696,6 +869,13 @@ module.exports = NodeHelper.create({
                 this.warn("processQueue found empty queue but speaker exists! Forcing close")
                 this.closePersistentSpeaker()
             }
+            
+            // If this was an interruption, signal the UI that we're ready for new input
+            if (interrupted) {
+                this.log("Playback was interrupted, signaling readiness for new input")
+                this.sendToFrontend("GEMINI_TURN_COMPLETE", {})
+            }
+            
             return
         }
 

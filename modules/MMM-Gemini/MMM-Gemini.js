@@ -19,10 +19,11 @@ Module.register("MMM-Gemini", {
     apiKey: "", // MUST be set in config.js
 
     showIndicators: true,
-    activationKey: "t", // Key to press to activate/deactivate listening
+    activationKey: " ", // Key to press to activate/deactivate listening (spacebar)
 
     initializingIndicatorSvg: `<svg width="50" height="50" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="white"><animate attributeName="r" dur="1.2s" values="35;40;35" repeatCount="indefinite" /></circle></svg>`,
     recordingIndicatorSvg: `<svg width="50" height="50" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="red"><animate attributeName="r" dur="1.2s" values="35;40;35" repeatCount="indefinite" /></circle></svg>`,
+    mutedIndicatorSvg: `<svg width="50" height="50" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="orange" /></svg>`,
     errorIndicatorSvg: `<svg width="50" height="50" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="#333" /><line x1="30" y1="30" x2="70" y2="70" stroke="red" stroke-width="10" /><line x1="70" y1="30" x2="30" y2="70" stroke="red" stroke-width="10" /></svg>`,
   },
 
@@ -34,7 +35,9 @@ Module.register("MMM-Gemini", {
   helperReady: false,
   turnComplete: true,
   isListening: false,
+  isMuted: false,
   isActivating: false,
+  keyIsDown: false,
 
   // --- Lifecycle Functions ---
   start() {
@@ -57,17 +60,45 @@ Module.register("MMM-Gemini", {
       return;
     }
 
-    this.sendSocketNotification("START_CONNECTION", {
-      apiKey: this.config.apiKey,
+    // Get weather module config from global config
+    const weatherModules = MM.getModules().filter(module => module.name === "weather");
+    let locationInfo = null;
+    
+    if (weatherModules.length > 0) {
+        // Try to find the 'current' weather module first
+        let weatherModule = weatherModules.find(m => m.config.type === "current");
+        // If not found, take the first available weather module
+        if (!weatherModule && weatherModules.length > 0) {
+            weatherModule = weatherModules[0]; 
+        }
+
+        if (weatherModule && weatherModule.config && typeof weatherModule.config.lat !== 'undefined' && typeof weatherModule.config.lon !== 'undefined') {
+            locationInfo = {
+                lat: weatherModule.config.lat,
+                lon: weatherModule.config.lon
+            };
+            Log.info(this.name + ": Found location from weather module:", locationInfo);
+        } else {
+            Log.warn(this.name + ": Could not find lat/lon in a weather module's config. Location-specific features may be impaired.");
+        }
+    } else {
+        Log.warn(this.name + ": No weather module found. Location-specific features may be impaired.");
+    }
+    
+    // Send API key and location (if found) to node helper for initialization
+    this.sendSocketNotification("INIT", { 
+        apiKey: this.config.apiKey,
+        location: locationInfo // This can be null if not found
     });
 
-    // Add key press listener
-    document.addEventListener("keydown", this.handleKeyPress.bind(this));
+    // Add key event listeners for press-to-talk functionality
+    document.addEventListener("keydown", this.handleKeyDown.bind(this));
+    document.addEventListener("keyup", this.handleKeyUp.bind(this));
 
     this.updateDom();
   },
 
-  handleKeyPress: function(event) {
+  handleKeyDown: function(event) {
     // Ignore key presses if a modifier key like Ctrl, Alt, Meta is also pressed,
     // or if the user might be typing in an input field (though less common in MM core)
     if (event.ctrlKey || event.altKey || event.metaKey || event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
@@ -75,18 +106,36 @@ Module.register("MMM-Gemini", {
     }
 
     if (event.key.toLowerCase() === this.config.activationKey.toLowerCase()) {
+        // Prevent repeating the keydown event when key is held
+        if (this.keyIsDown) return;
+        this.keyIsDown = true;
+        
         Log.info(this.name + " activation key '" + this.config.activationKey + "' pressed.");
-        if (!this.isListening && !this.isActivating) {
+
+        // If we're already recording but muted, just unmute
+        if (this.isMuted) {
+            Log.info(this.name + ": Unmuting microphone");
+            this.sendSocketNotification("ACTIVATE_LISTENING"); // This will handle unmuting
+            return;
+        }
+        
+        // Otherwise start a new recording session if not already listening
+        if (!this.isListening && !this.isActivating && this.helperReady) {
             Log.info(this.name + ": Activating listening.");
             this.sendSocketNotification("ACTIVATE_LISTENING");
-            this.isActivating = true; // Set flag to prevent multiple rapid activations
-            // UI will be updated by socketNotificationReceived for GEMINI_CONNECTING
-        } else if (this.isListening) {
-            Log.info(this.name + ": Deactivating listening.");
-            this.sendSocketNotification("DEACTIVATE_LISTENING");
-            // UI will be updated by socketNotificationReceived for GEMINI_DISCONNECTED or RECORDING_STOPPED
-        } else if (this.isActivating) {
-            Log.warn(this.name + ": Activation already in progress. Key press ignored.");
+            this.isActivating = true;
+        }
+    }
+  },
+
+  handleKeyUp: function(event) {
+    if (event.key.toLowerCase() === this.config.activationKey.toLowerCase()) {
+        this.keyIsDown = false;
+        
+        if (this.isListening && !this.isMuted) {
+            Log.info(this.name + ": Muting microphone (key released).");
+            this.sendSocketNotification("MUTE_MICROPHONE");
+            // UI will be updated by socketNotificationReceived for MICROPHONE_MUTED
         }
     }
   },
@@ -114,6 +163,9 @@ Module.register("MMM-Gemini", {
             break;
         case "RECORDING":
           indicatorSvg = this.config.recordingIndicatorSvg;
+          break;
+        case "MUTED":
+          indicatorSvg = this.config.mutedIndicatorSvg;
           break;
         case "ERROR":
           indicatorSvg = this.config.errorIndicatorSvg;
@@ -208,16 +260,19 @@ Module.register("MMM-Gemini", {
 
     switch (notification) {
       case "HELPER_READY_FOR_ACTIVATION":
-        this.currentStatusText = "Ready (Press '" + this.config.activationKey + "')";
+        this.currentStatusText = "Ready (Hold spacebar to talk)";
         this.currentState = "READY_TO_LISTEN";
         this.isListening = false;
+        this.isMuted = false;
         this.isActivating = false;
+        this.helperReady = true;
         break;
       case "GEMINI_CONNECTING":
         this.currentStatusText = "Connecting to Gemini...";
         this.currentState = "CONNECTING";
         this.isActivating = true; // Still in the process of activating
         this.isListening = false;
+        this.isMuted = false;
         break;
       case "GEMINI_CONNECTED":
         this.currentStatusText = "Connected. Starting microphone...";
@@ -225,10 +280,17 @@ Module.register("MMM-Gemini", {
         this.currentState = "ACTIVATING"; // Or perhaps CONNECTED_WAITING_FOR_MIC
         break;
       case "RECORDING_STARTED":
-        this.currentStatusText = "Listening...";
+        this.currentStatusText = "Listening (release key to mute)...";
         this.currentState = "RECORDING";
         this.isListening = true;
+        this.isMuted = false;
         this.isActivating = false; // Activation complete, now listening
+        break;
+      case "MICROPHONE_MUTED":
+        this.currentStatusText = "Muted (hold key to talk)";
+        this.currentState = "MUTED";
+        this.isMuted = true;
+        // Note: isListening remains true since the recording is still active
         break;
       case "GEMINI_TEXT_RESPONSE":
         if (payload.text) {
@@ -236,24 +298,30 @@ Module.register("MMM-Gemini", {
         }
         break;
       case "GEMINI_TURN_COMPLETE":
-        this.currentStatusText = "Gemini finished. Press '" + this.config.activationKey + "' to talk.";
-        // this.currentState = "READY_TO_LISTEN"; // Or some other idle state
-        // No automatic deactivation, user presses key again to start new or stop.
-        // If user wants to immediately talk again, they press 't'. If they want to stop, also 't'.
-        // If isListening is true, next 't' will deactivate.
+        // Always ensure we're not in activating state after a turn completes
+        this.isActivating = false;
+        
+        if (this.isMuted) {
+          this.currentStatusText = "Ready (Hold spacebar to talk)";
+        }
         break;
       case "GEMINI_DISCONNECTED":
-        this.currentStatusText = "Disconnected. Press '" + this.config.activationKey + "' to talk.";
+        this.currentStatusText = "Disconnected. Hold spacebar to talk.";
         this.currentState = "READY_TO_LISTEN";
         this.isListening = false;
+        this.isMuted = false;
         this.isActivating = false;
         break;
       case "RECORDING_STOPPED":
-        // This usually follows DEACTIVATE_LISTENING or an error.
-        // If not already handled by GEMINI_DISCONNECTED, update status.
-        if (!this.isActivating && !this.isListening) { // Only update if not in another transition
-             this.currentStatusText = "Recording stopped. Press '" + this.config.activationKey + "' to talk.";
-             this.currentState = "READY_TO_LISTEN";
+        // This is now only used when recording is completely stopped, not just muted
+        this.isListening = false;
+        this.isMuted = false;
+        this.isActivating = false; // Make sure we can start listening again immediately
+        
+        // When we stop recording, update UI to show we're ready (unless we're in another state)
+        if (!this.isActivating) {
+          this.currentStatusText = "Ready (Hold spacebar to talk)";
+          this.currentState = "READY_TO_LISTEN";
         }
         break;
       case "HELPER_ERROR":
@@ -271,13 +339,13 @@ Module.register("MMM-Gemini", {
       case "GEMINI_IMAGE_GENERATED":
         this.isGeneratingImage = false;
         this.lastImageData = payload.image;
-        this.currentStatusText = "Image generated! Press '" + this.config.activationKey + "' to talk.";
+        this.currentStatusText = "Image generated! Hold spacebar to talk.";
         // this.currentState = "READY_TO_LISTEN";
         Log.info(this.name + " Image Data Received");
         break;
       case "GEMINI_IMAGE_BLOCKED":
         this.isGeneratingImage = false;
-        this.currentStatusText = `Image generation blocked: ${payload.reason}. Press '${this.config.activationKey}' to talk.`;
+        this.currentStatusText = `Image generation blocked: ${payload.reason}. Hold spacebar to talk.`;
         // this.currentState = "READY_TO_LISTEN";
         Log.warn(this.name + " Image generation blocked: " + payload.reason);
         break;
@@ -289,11 +357,14 @@ Module.register("MMM-Gemini", {
     // Update currentStatusText based on overall state if not specifically set above
     if (this.isGeneratingImage && this.currentState !== "ERROR") {
         this.currentStatusText = "Generating image...";
-    } else if (this.isListening) {
-        this.currentStatusText = "Listening...";
+    } else if (this.isListening && !this.isMuted) {
+        this.currentStatusText = "Listening (release key to mute)...";
+    } else if (this.isListening && this.isMuted) {
+        this.currentStatusText = "Muted (hold key to talk)";
     } else if (this.isActivating) {
         this.currentStatusText = "Activating...";
     }
+    
     // Final catch-all status update based on state for the indicator
     if (statusTextDiv) statusTextDiv.innerHTML = this.currentStatusText;
     if (responseTextDiv && this.lastResponseText) responseTextDiv.innerHTML = this.lastResponseText;
