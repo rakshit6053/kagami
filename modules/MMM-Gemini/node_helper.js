@@ -18,6 +18,8 @@ const { GoogleGenAI, Modality, DynamicRetrievalConfigMode, Type, PersonGeneratio
 const recorder = require('node-record-lpcm16')
 const { Buffer } = require('buffer')
 const Speaker = require('speaker-arm64')
+const { WellnessAgent } = require('./lib/wellness')
+const { FitnessAgent } = require('./lib/fitness')
 
 const INPUT_SAMPLE_RATE = 44100  // Standard CD quality
 const OUTPUT_SAMPLE_RATE = 24000 // Gemini outputs at 24kHz
@@ -55,12 +57,455 @@ module.exports = NodeHelper.create({
     isPermanentlyDisconnected: false,
     liveSessionReady: false,
     userLocation: null,
+    wellness: null,
+    fitness: null,
+    meditationMode: false,
+    currentMeditationPlan: null,
+    currentMeditationStep: 0,
+    fitnessMode: false,
+    currentWorkoutPlan: null,
+    currentExerciseIndex: 0,
+    pendingFitnessTarget: null,
+    userParams: {
+        age: 30,           // Default age
+        weight: 70,        // Default weight in kg
+        height: 1.75,      // Default height in meters  
+        fitnessExperience: 'some' // none, some, experienced
+    },
 
     // Logger functions
     log: function(...args) { console.log(`[${new Date().toISOString()}] LOG (${this.name}):`, ...args) },
     error: function(...args) { console.error(`[${new Date().toISOString()}] ERROR (${this.name}):`, ...args) },
     warn: function(...args) { console.warn(`[${new Date().toISOString()}] WARN (${this.name}):`, ...args) },
     sendToFrontend: function(notification, payload) { this.sendSocketNotification(notification, payload) },
+
+    // Start interactive meditation session
+    async startInteractiveMeditation(totalSeconds) {
+        const { buildPlan } = require('./lib/meditationPlan');
+        
+        // Build the meditation plan
+        this.currentMeditationPlan = buildPlan(totalSeconds);
+        this.currentMeditationStep = 0;
+        this.meditationMode = true;
+        
+        // Disable muting and ensure continuous recording
+        this.isMuted = false;
+        
+        // Notify frontend that we're in open mic mode during meditation
+        this.sendToFrontend("RECORDING_STARTED");
+        
+        this.log(`Entering meditation mode with ${this.currentMeditationPlan.steps.length} steps`);
+        this.sendToFrontend("MEDITATION_MODE_STARTED", {
+            totalSteps: this.currentMeditationPlan.steps.length,
+            totalDuration: this.currentMeditationPlan.totalDuration
+        });
+        
+        // Send meditation context immediately to AI
+        setTimeout(() => {
+            this.sendMeditationContextToAI();
+        }, 1000); // Wait for recording to be fully active
+    },
+
+    // Start interactive fitness session  
+    async startInteractiveFitness(target) {
+        const { buildWorkoutPlan, calculateBMI } = require('./lib/fitnessPlans');
+        
+        try {
+            // Calculate BMI for user params
+            this.userParams.bmi = calculateBMI(this.userParams.weight, this.userParams.height);
+            
+            // Build the workout plan
+            this.currentWorkoutPlan = buildWorkoutPlan(target, this.userParams);
+            this.currentExerciseIndex = 0;
+            this.fitnessMode = true;
+            
+            // Disable muting and ensure continuous recording
+            this.isMuted = false;
+            
+            // Notify frontend that we're in open mic mode during fitness
+            this.sendToFrontend("RECORDING_STARTED");
+            
+            this.log(`Entering fitness mode: ${this.currentWorkoutPlan.name} with ${this.currentWorkoutPlan.totalExercises} exercises`);
+            this.sendToFrontend("FITNESS_MODE_STARTED", {
+                target: this.currentWorkoutPlan.target,
+                fitnessLevel: this.currentWorkoutPlan.fitnessLevel,
+                totalExercises: this.currentWorkoutPlan.totalExercises,
+                workoutName: this.currentWorkoutPlan.name
+            });
+            
+            // Send fitness context immediately to AI
+            setTimeout(() => {
+                this.sendFitnessContextToAI();
+            }, 1000); // Wait for recording to be fully active
+            
+        } catch (error) {
+            this.error("Error starting fitness session:", error);
+            this.sendToFrontend("HELPER_ERROR", { error: `Failed to start fitness session: ${error.message}` });
+        }
+    },
+
+    // Send meditation context to AI via text input
+    async sendMeditationContextToAI() {
+        if (!this.liveSession || !this.connectionOpen || !this.currentMeditationPlan) {
+            this.log("Cannot send meditation context - session not ready");
+            return;
+        }
+
+        const firstStep = this.currentMeditationPlan.steps[0];
+
+        const contextText = `${firstStep.instruction}`;
+
+        try {
+            this.log("Sending meditation context as text to AI");
+            const textPayload = {
+                text: contextText
+            };
+            await this.liveSession.sendRealtimeInput(textPayload);
+            this.log("Meditation context sent successfully");
+        } catch (error) {
+            this.error("Failed to send meditation context:", error);
+        }
+    },
+
+    // Send next step context to AI
+    async sendNextStepContextToAI() {
+        if (!this.liveSession || !this.connectionOpen || !this.currentMeditationPlan) {
+            this.log("Cannot send next step context - session not ready");
+            return;
+        }
+
+        const currentStep = this.currentMeditationPlan.steps[this.currentMeditationStep];
+        const stepText = `${currentStep.instruction}`;
+
+        try {
+            this.log(`Sending next step ${this.currentMeditationStep + 1} context to AI`);
+            const textPayload = {
+                text: stepText
+            };
+            await this.liveSession.sendRealtimeInput(textPayload);
+            this.log("Next step context sent successfully");
+        } catch (error) {
+            this.error("Failed to send next step context:", error);
+        }
+    },
+
+    // Send fitness context to AI via text input
+    async sendFitnessContextToAI() {
+        if (!this.liveSession || !this.connectionOpen || !this.currentWorkoutPlan) {
+            this.log("Cannot send fitness context - session not ready");
+            return;
+        }
+
+        const firstExercise = this.currentWorkoutPlan.exercises[0];
+        const contextText = `Exercise 1: ${firstExercise.exercise}. ${firstExercise.reps} repetitions. ${firstExercise.instruction}`;
+
+        try {
+            this.log("Sending fitness context as text to AI");
+            const textPayload = {
+                text: contextText
+            };
+            await this.liveSession.sendRealtimeInput(textPayload);
+            this.log("Fitness context sent successfully");
+        } catch (error) {
+            this.error("Failed to send fitness context:", error);
+        }
+    },
+
+    // Send next exercise context to AI
+    async sendNextExerciseContextToAI() {
+        if (!this.liveSession || !this.connectionOpen || !this.currentWorkoutPlan) {
+            this.log("Cannot send next exercise context - session not ready");
+            return;
+        }
+
+        const currentExercise = this.currentWorkoutPlan.exercises[this.currentExerciseIndex];
+        const exerciseText = `Exercise ${currentExercise.exerciseNumber}: ${currentExercise.exercise}. ${currentExercise.reps} repetitions. ${currentExercise.instruction}`;
+
+        try {
+            this.log(`Sending next exercise ${this.currentExerciseIndex + 1} context to AI`);
+            const textPayload = {
+                text: exerciseText
+            };
+            await this.liveSession.sendRealtimeInput(textPayload);
+            this.log("Next exercise context sent successfully");
+        } catch (error) {
+            this.error("Failed to send next exercise context:", error);
+        }
+    },
+
+    // Build system prompt with meditation context if needed
+    buildSystemPrompt() {
+        let basePrompt = `You are Kagami — a calm, intelligent voice assistant embedded in a smart mirror.
+
+Purpose:
+You assist users with brief, natural responses to everyday questions. People may speak to you casually while getting ready or walking by — so your answers must be clear, concise, and voice-optimized.
+
+Smart Mirror Context:
+Users primarily interact with you through their reflection in the mirror, creating an intimate and personal experience. Your responses should feel natural and conversational, as if speaking to a trusted companion.
+
+${this.userLocation ? `The user's primary location is latitude ${this.userLocation.lat} and longitude ${this.userLocation.lon}. STRICT INSTRUCTION: When the user asks specifically for "weather" or "weather forecast" and does NOT name a different city/location in their voice query, you MUST use this primary location (latitude ${this.userLocation.lat}, longitude ${this.userLocation.lon}) to get the weather information. All weather information, regardless of location, MUST be provided in Celsius. Do not default to any other location or unit for such weather requests. For other local information requests, use this primary location unless the user explicitly specifies another location.` : "The user has not specified a primary location. If asked for weather or local information, you must ask for clarification (e.g., 'For what location?'). If providing weather after clarification, it MUST be in Celsius."}
+
+Response Guidelines:
+1. Keep responses brief and direct (1-3 sentences typically)
+2. Use a conversational, friendly tone
+3. Avoid long explanations unless specifically requested  
+4. For complex topics, offer to elaborate if they want more detail
+5. Remember that users may be multitasking (getting dressed, brushing teeth, etc.)
+
+You can help with:
+- Current time, date, and basic schedule info
+- Local or global weather updates (If the user asks for "weather" or "weather forecast" without specifying a location in their query, use their primary location if available and provide the temperature in Celsius. Otherwise, ask for clarification; if weather is then given, it MUST be in Celsius.)
+- Quick facts, definitions, or calculations
+- Calendar-related info (e.g., "What day is it?")
+- Motivational quotes, jokes, or fun facts
+- Casual small talk or greetings
+- Guided meditation sessions: When a user asks to meditate or start a meditation session, ask for duration if not provided, then enter meditation mode where you read the meditation plan step by step and wait for user confirmation to proceed
+- Fitness workout sessions: When a user asks to start a workout or exercise, ask for target area if not provided (arms, legs, core, back, fullbody), then enter fitness mode where you guide through exercises step by step
+- Emergency exit: If user says "switch to push to talk", "exit to push to talk", or "peaches" at ANY time, immediately call switch_to_push_to_talk function
+- Open mic mode: If user says "switch to open mic", "enable open mic", "continuous listening" while in push-to-talk mode, call switch_to_open_mic function
+
+Light Entertainment:
+You're also allowed to keep things fun with short, spoken games or entertainment such as:
+- Movie or music trivia
+- Quick riddles
+- "Would you rather" questions
+- Quick creative challenges (like "describe your day in 3 words")
+
+What to Avoid:
+- Long technical explanations (unless requested)
+- Multiple choice lists with many options
+- Reading long articles or content verbatim
+- Complex multi-step instructions
+- Asking for personal information unnecessarily
+
+Your personality should be warm, supportive, and quietly intelligent — like a helpful friend who's always there when needed but never intrusive.
+
+Tone:
+- Friendly, brief, and conversational
+- Never robotic or overly formal
+- A touch of charm or wit is good maybe some sarcasm!
+- Avoid sounding like a search engine or AI model
+
+Final Note:
+Kagami should feel like a calm, intelligent presence — always helpful, never intrusive. Think smart, speak simply, stay present.
+
+Your default language is English, but you should respond in the input audio language from the speaker if you detect a non-English language. You must respond unmistakably in the language that the speaker inputs via audio.`;
+
+        // Add meditation context if in meditation mode
+        if (this.meditationMode && this.currentMeditationPlan) {
+            const meditationContext = this.buildMeditationContext();
+            basePrompt += `\n\n${meditationContext}`;
+        }
+
+        // Add fitness context if in fitness mode
+        if (this.fitnessMode && this.currentWorkoutPlan) {
+            const fitnessContext = this.buildFitnessContext();
+            basePrompt += `\n\n${fitnessContext}`;
+        }
+
+        return basePrompt;
+    },
+
+    // Build meditation context for AI
+    buildMeditationContext() {
+        if (!this.currentMeditationPlan) return "";
+        
+        const currentStep = this.currentMeditationPlan.steps[this.currentMeditationStep];
+        
+        return `
+
+MEDITATION SESSION ACTIVE - READ ONLY CURRENT STEP:
+
+CURRENT STEP ${this.currentMeditationStep + 1} of ${this.currentMeditationPlan.steps.length}: "${currentStep.instruction}"
+
+DO NOT read the full plan or all steps - ONLY read the current step above.
+
+${this.currentMeditationStep === 0 ? 
+    `ACTION: Read step 1: "${currentStep.instruction}". Stop talking. Wait silently for "next".` :
+    `ACTION: Read step ${this.currentMeditationStep + 1}: "${currentStep.instruction}". Stop talking. Wait silently for "next".`
+}
+
+CRITICAL: YOU MUST CALL FUNCTIONS, NOT JUST RESPOND WITH TEXT!
+
+MEDITATION COMMANDS (MUST CALL FUNCTIONS):
+- NEXT STEP: "next", "continue", "okay", "go on", "proceed" → CALL next_meditation_step function
+- SKIP TO SPECIFIC: "skip to step X", "go to step X", "jump to X" → CALL skip_to_step function  
+- SKIP TO END: "skip to last", "go to last one", "final step", "last step" → CALL skip_to_step function
+- END SESSION: "stop", "end session", "quit", "finish", "done" → CALL end_meditation function
+- FORCE EXIT: "switch to push to talk", "exit to push to talk", "peaches", "abort", "escape", "exit now", "stop listening" → CALL switch_to_push_to_talk function
+
+IMPORTANT: When user wants to end or exit, DO NOT just say "okay ending session" - you MUST actually call the end_meditation or switch_to_push_to_talk function!`;
+    },
+
+    // Build fitness context for AI
+    buildFitnessContext() {
+        if (!this.currentWorkoutPlan) return "";
+        
+        const currentExercise = this.currentWorkoutPlan.exercises[this.currentExerciseIndex];
+        
+        return `
+
+FITNESS SESSION ACTIVE - READ ONLY CURRENT EXERCISE:
+
+CURRENT EXERCISE ${this.currentExerciseIndex + 1} of ${this.currentWorkoutPlan.totalExercises}: "${currentExercise.exercise}"
+REPS: ${currentExercise.reps}
+INSTRUCTION: ${currentExercise.instruction}
+
+WORKOUT: ${this.currentWorkoutPlan.name}
+TARGET: ${this.currentWorkoutPlan.target}
+FITNESS LEVEL: ${this.currentWorkoutPlan.fitnessLevel}
+
+DO NOT read the full workout plan or all exercises - ONLY read the current exercise above.
+
+${this.currentExerciseIndex === 0 ? 
+    `ACTION: Read exercise 1: "${currentExercise.exercise}. ${currentExercise.reps} repetitions. ${currentExercise.instruction}". Stop talking. Wait silently for "done" or "finished".` :
+    `ACTION: Read exercise ${this.currentExerciseIndex + 1}: "${currentExercise.exercise}. ${currentExercise.reps} repetitions. ${currentExercise.instruction}". Stop talking. Wait silently for "done" or "finished".`
+}
+
+CRITICAL: YOU MUST CALL FUNCTIONS, NOT JUST RESPOND WITH TEXT!
+
+FITNESS COMMANDS (MUST CALL FUNCTIONS):
+- NEXT EXERCISE: "done", "finished", "next", "continue", "completed" → CALL next_fitness_exercise function
+- SKIP TO SPECIFIC: "skip to exercise X", "go to exercise X", "jump to X" → CALL skip_to_exercise function  
+- SKIP TO END: "skip to last", "go to last exercise", "final exercise", "last exercise" → CALL skip_to_exercise function
+- END SESSION: "stop", "end workout", "quit", "finish", "done with workout" → CALL end_fitness function
+- FORCE EXIT: "switch to push to talk", "exit to push to talk", "peaches", "abort", "escape", "exit now", "stop listening" → CALL switch_to_push_to_talk function
+
+IMPORTANT: When user wants to end or exit, DO NOT just say "okay ending workout" - you MUST actually call the end_fitness or switch_to_push_to_talk function!`;
+    },
+
+    // Handle meditation progression 
+    async progressMeditation() {
+        if (!this.meditationMode || !this.currentMeditationPlan) return false;
+        
+        this.currentMeditationStep++;
+        
+        if (this.currentMeditationStep >= this.currentMeditationPlan.steps.length) {
+            // Session complete
+            await this.endMeditation(false);
+            return true;
+        }
+        
+        // Send next step context to AI
+        this.sendNextStepContextToAI();
+        return false;
+    },
+
+    // Handle fitness progression 
+    async progressFitness() {
+        if (!this.fitnessMode || !this.currentWorkoutPlan) return false;
+        
+        this.currentExerciseIndex++;
+        
+        if (this.currentExerciseIndex >= this.currentWorkoutPlan.totalExercises) {
+            // Workout complete
+            await this.endFitness(false);
+            return true;
+        }
+        
+        // Send next exercise context to AI
+        this.sendNextExerciseContextToAI();
+        return false;
+    },
+
+    // End meditation session
+    async endMeditation(userStopped = false) {
+        this.log(`Ending meditation session. User stopped: ${userStopped}`);
+        
+        this.meditationMode = false;
+        this.currentMeditationPlan = null;
+        this.currentMeditationStep = 0;
+        
+        // Restore hold-to-talk mode by stopping recording (but keeping connection open)
+        if (this.isRecording) {
+            this.log("Ending meditation: stopping recording to restore hold-to-talk mode");
+            this.stopRecording(false); // Stop recording but don't close connection
+            this.sendToFrontend("RECORDING_STOPPED");
+            this.log("Recording stopped - back to hold-to-talk mode, connection remains open");
+        } else {
+            this.log("Recording not active - ensuring connection is ready for hold-to-talk");
+            this.sendToFrontend("RECORDING_STOPPED"); // Ensure frontend knows we're in stopped state
+        }
+        
+        // Ensure we can start new meditation sessions
+        this.log("Meditation session cleanup complete - ready for new sessions");
+        
+        this.sendToFrontend("MEDITATION_MODE_ENDED", { userStopped });
+        
+        this.log("Meditation session ended - returned to hold-to-talk mode");
+    },
+
+    // End fitness session
+    async endFitness(userStopped = false) {
+        this.log(`Ending fitness session. User stopped: ${userStopped}`);
+        
+        this.fitnessMode = false;
+        this.currentWorkoutPlan = null;
+        this.currentExerciseIndex = 0;
+        this.pendingFitnessTarget = null;
+        
+        // Restore hold-to-talk mode by stopping recording (but keeping connection open)
+        if (this.isRecording) {
+            this.log("Ending fitness: stopping recording to restore hold-to-talk mode");
+            this.stopRecording(false); // Stop recording but don't close connection
+            this.sendToFrontend("RECORDING_STOPPED");
+            this.log("Recording stopped - back to hold-to-talk mode, connection remains open");
+        } else {
+            this.log("Recording not active - ensuring connection is ready for hold-to-talk");
+            this.sendToFrontend("RECORDING_STOPPED"); // Ensure frontend knows we're in stopped state
+        }
+        
+        // Ensure we can start new fitness sessions
+        this.log("Fitness session cleanup complete - ready for new sessions");
+        
+        this.sendToFrontend("FITNESS_MODE_ENDED", { userStopped });
+        
+        this.log("Fitness session ended - returned to hold-to-talk mode");
+    },
+
+    // AI speech helper using Gemini TTS API
+    async speak(text) {
+        this.log(`Speaking via TTS: "${text}"`);
+        
+        if (!this.genAI) {
+            this.warn("Gemini AI not initialized for TTS, showing text instead");
+            this.sendToFrontend('GEMINI_TEXT_RESPONSE', { text });
+            return;
+        }
+
+        try {
+            // Use Gemini TTS API for speech synthesis
+            const response = await this.genAI.models.generateContent({
+                model: "gemini-2.5-flash-preview-tts",
+                contents: [{ parts: [{ text: `Say calmly and gently: ${text}` }] }],
+                config: {
+                    responseModalities: ['AUDIO'],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: 'Puck' }, // Calm voice for meditation
+                        },
+                    },
+                },
+            });
+
+            const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+            if (audioData) {
+                this.log(`TTS audio generated, adding to playback queue`);
+                // Use the same audio playback system as Live API
+                this.audioQueue.push(audioData);
+                if (!this.processingQueue) {
+                    this.processQueue(false);
+                }
+            } else {
+                this.warn("No audio data received from TTS, showing text instead");
+                this.sendToFrontend('GEMINI_TEXT_RESPONSE', { text });
+            }
+        } catch (error) {
+            this.error("Error generating TTS audio:", error);
+            // Fallback to text display
+            this.sendToFrontend('GEMINI_TEXT_RESPONSE', { text });
+        }
+    },
 
     applyDefaultState(preserveApiKey = false) {
         if (!preserveApiKey) this.apiKey = null;
@@ -78,6 +523,16 @@ module.exports = NodeHelper.create({
         this.geminiConnecting = false;
         this.closePersistentSpeaker()
         this.imaGenAI = null
+        if (this.wellness) {
+            this.wellness.clear()
+        }
+        this.meditationMode = false
+        this.currentMeditationPlan = null
+        this.currentMeditationStep = 0
+        this.fitnessMode = false
+        this.currentWorkoutPlan = null
+        this.currentExerciseIndex = 0
+        this.pendingFitnessTarget = null
         // Reconnect attempts for Live API are managed by establishLiveConnectionAndRecord
     },
 
@@ -115,6 +570,25 @@ module.exports = NodeHelper.create({
             })
 
             this.log('Step 2: GoogleGenAI instances created.')
+            
+            // Initialize wellness agent
+            this.wellness = new WellnessAgent({
+                notifyFront: (notification, payload) => this.sendToFrontend(notification, payload),
+                speak: async (text) => await this.speak(text),
+                log: (...args) => this.log(...args),
+                warn: (...args) => this.warn(...args),
+                error: (...args) => this.error(...args),
+            })
+            
+            // Initialize fitness agent
+            this.fitness = new FitnessAgent({
+                notifyFront: (notification, payload) => this.sendToFrontend(notification, payload),
+                speak: async (text) => await this.speak(text),
+                log: (...args) => this.log(...args),
+                warn: (...args) => this.warn(...args),
+                error: (...args) => this.error(...args),
+            })
+            
             this.apiInitialized = true
             this.apiInitializing = false
             this.sendToFrontend("HELPER_READY_FOR_ACTIVATION") // Inform frontend instances are ready
@@ -237,45 +711,7 @@ module.exports = NodeHelper.create({
                         },
                     },
                     systemInstruction: {
-                        parts: [ { text: `You are Kagami — a calm, intelligent voice assistant embedded in a smart mirror.
-
-Purpose:
-You assist users with brief, natural responses to everyday questions. People may speak to you casually while getting ready or walking by — so your answers must be clear, concise, and voice-optimized.
-
-Smart Mirror Context:
-You're not a chatbot or phone assistant. Your tone is always calm, helpful, and subtly warm. 
-
-${this.userLocation ? `The user's primary location is latitude ${this.userLocation.lat} and longitude ${this.userLocation.lon}. STRICT INSTRUCTION: When the user asks specifically for "weather" or "weather forecast" and does NOT name a different city/location in their voice query, you MUST use this primary location (latitude ${this.userLocation.lat}, longitude ${this.userLocation.lon}) to get the weather information. All weather information, regardless of location, MUST be provided in Celsius. Do not default to any other location or unit for such weather requests. For other local information requests, use this primary location unless the user explicitly specifies another location.` : "The user has not specified a primary location. If asked for weather or local information, you must ask for clarification (e.g., 'For what location?'). If providing weather after clarification, it MUST be in Celsius."}
-
-What You Can Do:
-Respond to general-purpose queries, including:
-- Current time and date
-- Local or global weather updates (If the user asks for "weather" or "weather forecast" without specifying a location in their query, use their primary location if available and provide the temperature in Celsius. Otherwise, ask for clarification; if weather is then given, it MUST be in Celsius.)
-- Quick facts, definitions, or calculations
-- Calendar-related info (e.g., "What day is it?")
-- Motivational quotes, jokes, or fun facts
-- Casual small talk or greetings
-
-Light Entertainment:
-You're also allowed to keep things fun with short, spoken games or entertainment such as:
-- Movie or music trivia
-- Quick riddles
-- "Did you know?" facts
-- This Day in History
-- Two-line guessing games (e.g., "Guess the movie: A ship hits an iceberg…")
-
-Tone:
-- Friendly, brief, and conversational
-- Never robotic or overly formal
-- A touch of charm or wit is good maybe some sarcasm!
-- Avoid sounding like a search engine or AI model
-
-Final Note:
-Kagami should feel like a calm, intelligent presence — always helpful, never intrusive. Think smart, speak simply, stay present.
-
-Your default language is English, but you should respond in the input audio language from the speaker if you detect a non-English language. You must respond unmistakably in the language that the speaker inputs via audio.
-
-` }],
+                        parts: [ { text: this.buildSystemPrompt() }],
                     },
                     tools: [{
                         googleSearch: {},
@@ -284,6 +720,148 @@ Your default language is English, but you should respond in the input audio lang
                                 mode: DynamicRetrievalConfigMode.MODE_DYNAMIC,
                             }
                         },
+                    }, {
+                        functionDeclarations: [
+                            {
+                                name: "start_meditation",
+                                description: "Start a guided meditation session. If durationSeconds is missing, ask the user for duration.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: { 
+                                        durationSeconds: { 
+                                            type: Type.NUMBER, 
+                                            description: "Total meditation duration in seconds"
+                                        } 
+                                    },
+                                    required: []
+                                }
+                            },
+                            {
+                                name: "control_meditation",
+                                description: "Control current meditation: skip current step, extend time, or stop the session.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        action: { 
+                                            type: Type.STRING, 
+                                            description: "Control action: skip, extend, or stop",
+                                            enum: ["skip", "extend", "stop"]
+                                        },
+                                        seconds: { 
+                                            type: Type.NUMBER, 
+                                            description: "Number of seconds to extend (only used with extend action)"
+                                        }
+                                    },
+                                    required: ["action"]
+                                }
+                            },
+                            {
+                                name: "next_meditation_step",
+                                description: "Move to the next step in the interactive meditation session. Call this when user says 'next', 'continue', 'okay next', etc.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {},
+                                    required: []
+                                }
+                            },
+                            {
+                                name: "skip_to_step",
+                                description: "Skip to a specific meditation step. Use when user says 'skip to step X', 'go to last one', 'jump to final step', etc.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        stepNumber: {
+                                            type: Type.NUMBER,
+                                            description: "Step number to skip to (1-based). Use the last step number if user says 'last', 'final', etc."
+                                        }
+                                    },
+                                    required: ["stepNumber"]
+                                }
+                            },
+                            {
+                                name: "end_meditation",
+                                description: "End the current meditation session. Call this when user says 'stop', 'end session', 'exit', etc.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        userStopped: {
+                                            type: Type.BOOLEAN,
+                                            description: "Whether the user manually stopped the session"
+                                        }
+                                    },
+                                    required: ["userStopped"]
+                                }
+                            },
+                            {
+                                name: "switch_to_push_to_talk",
+                                description: "Immediately switch back to push-to-talk mode. Use when user says 'switch to push to talk', 'exit to push to talk', 'peaches', 'abort', 'escape', 'exit now', 'stop listening', or when they want to force exit meditation mode.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {},
+                                    required: []
+                                }
+                            },
+                            {
+                                name: "switch_to_open_mic",
+                                description: "Switch to open mic (continuous listening) mode. Use when user says 'switch to open mic', 'enable open mic', 'continuous listening', 'open mic mode', etc.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {},
+                                    required: []
+                                }
+                            },
+                            {
+                                name: "start_fitness",
+                                description: "Start a fitness workout session. If target area is missing, ask the user for target (arms, legs, core, back, fullbody).",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: { 
+                                        target: { 
+                                            type: Type.STRING, 
+                                            description: "Target muscle group: arms, legs, core, back, or fullbody"
+                                        } 
+                                    },
+                                    required: []
+                                }
+                            },
+                            {
+                                name: "next_fitness_exercise",
+                                description: "Move to the next exercise in the fitness session. Call this when user says 'done', 'finished', 'next', 'continue', 'completed', etc.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {},
+                                    required: []
+                                }
+                            },
+                            {
+                                name: "skip_to_exercise",
+                                description: "Skip to a specific fitness exercise. Use when user says 'skip to exercise X', 'go to last exercise', 'jump to final exercise', etc.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        exerciseNumber: {
+                                            type: Type.NUMBER,
+                                            description: "Exercise number to skip to (1-based). Use the last exercise number if user says 'last', 'final', etc."
+                                        }
+                                    },
+                                    required: ["exerciseNumber"]
+                                }
+                            },
+                            {
+                                name: "end_fitness",
+                                description: "End the current fitness session. Call this when user says 'stop', 'end workout', 'quit', 'finish', 'done with workout', etc.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        userStopped: {
+                                            type: Type.BOOLEAN,
+                                            description: "Whether the user manually stopped the session"
+                                        }
+                                    },
+                                    required: ["userStopped"]
+                                }
+                            }
+                        ]
                     }]
                 },
             });
@@ -389,8 +967,8 @@ Your default language is English, but you should respond in the input audio lang
                     return;
                 }
                 
-                // If recording is active but muted, just unmute
-                if (this.isRecording && this.isMuted) {
+                // If recording is active but muted, just unmute (unless in meditation mode)
+                if (this.isRecording && this.isMuted && !this.meditationMode) {
                     this.log("Microphone already active but muted. Unmuting...");
                     this.isMuted = false;
                     this.sendToFrontend("RECORDING_STARTED");
@@ -411,7 +989,10 @@ Your default language is English, but you should respond in the input audio lang
                 break;
             case "MUTE_MICROPHONE":
                 this.log('>>> socketNotificationReceived: Handling MUTE_MICROPHONE');
-                if (this.isRecording) {
+                if (this.meditationMode || this.fitnessMode) {
+                    this.log("Cannot mute microphone - in meditation or fitness mode");
+                    this.sendToFrontend("HELPER_ERROR", { error: "Cannot mute during meditation or fitness session" });
+                } else if (this.isRecording) {
                     this.log("Muting microphone by setting isMuted=true. User audio will stop sending. Assistant playback should continue.");
                     this.isMuted = true; // This stops new audio from being sent to Gemini
                     this.sendToFrontend("MICROPHONE_MUTED"); // UI update
@@ -775,6 +1356,272 @@ Your default language is English, but you should respond in the input audio lang
                      this.warn("generate_image call missing 'image_prompt' argument")
                 }
                 break
+            case "start_meditation":
+                {
+                    const total = Number(args.durationSeconds);
+                    if (!total || total <= 0) {
+                        this.log("Meditation requested without duration, asking user for duration");
+                        // Don't call speak here - let Gemini handle asking naturally
+                        return; // Gemini will ask for duration through its normal response
+                    }
+                    
+                    // Check if meditation is already active
+                    if (this.meditationMode) {
+                        this.log("Meditation session already active, ignoring duplicate request");
+                        return;
+                    }
+                    
+                    this.log(`Starting interactive meditation session for ${total} seconds (${Math.round(total/60)} minutes)`);
+                    try {
+                        await this.startInteractiveMeditation(total);
+                    } catch (error) {
+                        this.error("Error starting meditation session:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to start meditation: ${error.message}` });
+                    }
+                }
+                break;
+            case "control_meditation":
+                {
+                    const { action, seconds } = args;
+                    this.log(`Meditation control requested: ${action}, seconds: ${seconds}`);
+                    try {
+                        if (this.meditationMode) {
+                            // In interactive mode, handle the actions differently
+                            if (action === 'stop') {
+                                await this.endMeditation(true);
+                            } else {
+                                this.log("Control meditation not supported in interactive mode, use next_meditation_step or end_meditation functions");
+                            }
+                        } else {
+                            // Legacy mode using wellness agent
+                            await this.wellness.control({ action, seconds: seconds ? Number(seconds) : undefined });
+                        }
+                    } catch (error) {
+                        this.error("Error controlling meditation session:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Meditation control failed: ${error.message}` });
+                    }
+                }
+                break;
+            case "next_meditation_step":
+                {
+                    this.log("Next meditation step requested");
+                    try {
+                        if (!this.meditationMode) {
+                            this.log("Not in meditation mode, ignoring next step request");
+                            return;
+                        }
+                        
+                        const sessionComplete = await this.progressMeditation();
+                        if (sessionComplete) {
+                            this.log("Meditation session completed");
+                        }
+                    } catch (error) {
+                        this.error("Error progressing meditation:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to progress meditation: ${error.message}` });
+                    }
+                }
+                break;
+            case "skip_to_step":
+                {
+                    const { stepNumber } = args;
+                    this.log(`Skip to step ${stepNumber} requested`);
+                    try {
+                        if (!this.meditationMode) {
+                            this.log("Not in meditation mode, ignoring skip request");
+                            return;
+                        }
+                        
+                        if (!stepNumber || stepNumber < 1 || stepNumber > this.currentMeditationPlan.steps.length) {
+                            this.log(`Invalid step number: ${stepNumber}. Valid range: 1-${this.currentMeditationPlan.steps.length}`);
+                            return;
+                        }
+                        
+                        // Skip to the requested step (convert to 0-based)
+                        this.currentMeditationStep = stepNumber - 1;
+                        this.log(`Skipped to step ${stepNumber}`);
+                        
+                        // Send the step context to AI
+                        await this.sendNextStepContextToAI();
+                        
+                    } catch (error) {
+                        this.error("Error skipping to meditation step:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to skip to step: ${error.message}` });
+                    }
+                }
+                break;
+            case "end_meditation":
+                {
+                    const { userStopped } = args;
+                    this.log(`End meditation requested: userStopped=${userStopped}`);
+                    try {
+                        await this.endMeditation(userStopped !== false);
+                    } catch (error) {
+                        this.error("Error ending meditation session:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to end meditation: ${error.message}` });
+                    }
+                }
+                break;
+            case "switch_to_push_to_talk":
+                {
+                    this.log("Force switch to push-to-talk requested");
+                    try {
+                        if (this.meditationMode) {
+                            this.log("Forcing exit from meditation mode to push-to-talk");
+                            await this.endMeditation(true); // Force end with user stopped = true
+                        } else {
+                            this.log("Not in meditation mode - ensuring push-to-talk state");
+                            // Force back to push-to-talk even if not in meditation
+                            if (this.isRecording) {
+                                this.stopRecording(false);
+                                this.sendToFrontend("RECORDING_STOPPED");
+                            }
+                        }
+                    } catch (error) {
+                        this.error("Error switching to push-to-talk:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to switch to push-to-talk: ${error.message}` });
+                    }
+                }
+                break;
+            case "switch_to_open_mic":
+                {
+                    this.log("Switch to open mic requested");
+                    try {
+                        if (!this.isRecording) {
+                            this.log("Not currently recording - starting recording for open mic mode");
+                            // Start recording first if not already recording
+                            if (this.connectionOpen && this.liveSession && this.liveSessionReady) {
+                                this.startRecording();
+                            } else {
+                                this.log("Connection not ready for open mic - need to establish connection first");
+                                await this.establishLiveConnectionAndRecord();
+                            }
+                        }
+                        
+                        if (this.isRecording) {
+                            this.log("Enabling open mic mode (unmuting microphone)");
+                            this.isMuted = false;
+                            this.sendToFrontend("RECORDING_STARTED");
+                            this.log("Open mic mode active - continuous listening enabled");
+                            
+                            // Ensure audio processing is ready
+                            this.log(`Audio queue length: ${this.audioQueue.length}, Processing: ${this.processingQueue}, Speaker: ${this.persistentSpeaker ? 'initialized' : 'not initialized'}`);
+                            
+                            // Speaker will be initialized automatically when audio is processed
+                            
+                            if (!this.processingQueue && this.audioQueue.length > 0) {
+                                this.log("Resuming audio queue processing for open mic mode");
+                                this.processQueue();
+                            }
+                            
+                            // Send a confirmation message to trigger AI response with audio
+                            setTimeout(async () => {
+                                if (this.liveSession && this.connectionOpen && !this.isMuted) {
+                                    try {
+                                        const confirmPayload = { text: "Open mic mode is now active." };
+                                        await this.liveSession.sendRealtimeInput(confirmPayload);
+                                        this.log("Sent open mic confirmation to trigger AI audio response");
+                                    } catch (error) {
+                                        this.log("Could not send open mic confirmation:", error);
+                                    }
+                                }
+                            }, 500);
+                        }
+                    } catch (error) {
+                        this.error("Error switching to open mic:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to switch to open mic: ${error.message}` });
+                    }
+                }
+                break;
+            case "start_fitness":
+                {
+                    const target = args.target;
+                    if (!target) {
+                        this.log("Fitness requested without target area, asking user for target");
+                        // Don't call speak here - let Gemini handle asking naturally
+                        return; // Gemini will ask for target through its normal response
+                    }
+                    
+                    // Validate target area
+                    const { availableTargets } = require('./lib/fitnessPlans');
+                    if (!availableTargets.includes(target.toLowerCase())) {
+                        this.log(`Invalid target area: ${target}. Valid options: ${availableTargets.join(', ')}`);
+                        return; // Let Gemini handle validation
+                    }
+                    
+                    // Check if fitness session is already active
+                    if (this.fitnessMode) {
+                        this.log("Fitness session already active, ignoring duplicate request");
+                        return;
+                    }
+                    
+                    this.log(`Starting fitness session for target: ${target}`);
+                    try {
+                        await this.startInteractiveFitness(target.toLowerCase());
+                    } catch (error) {
+                        this.error("Error starting fitness session:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to start fitness: ${error.message}` });
+                    }
+                }
+                break;
+            case "next_fitness_exercise":
+                {
+                    this.log("Next fitness exercise requested");
+                    try {
+                        if (!this.fitnessMode) {
+                            this.log("Not in fitness mode, ignoring next exercise request");
+                            return;
+                        }
+                        
+                        const sessionComplete = await this.progressFitness();
+                        if (sessionComplete) {
+                            this.log("Fitness session completed");
+                        }
+                    } catch (error) {
+                        this.error("Error progressing fitness:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to progress fitness: ${error.message}` });
+                    }
+                }
+                break;
+            case "skip_to_exercise":
+                {
+                    const { exerciseNumber } = args;
+                    this.log(`Skip to exercise ${exerciseNumber} requested`);
+                    try {
+                        if (!this.fitnessMode) {
+                            this.log("Not in fitness mode, ignoring skip request");
+                            return;
+                        }
+                        
+                        if (!exerciseNumber || exerciseNumber < 1 || exerciseNumber > this.currentWorkoutPlan.totalExercises) {
+                            this.log(`Invalid exercise number: ${exerciseNumber}. Valid range: 1-${this.currentWorkoutPlan.totalExercises}`);
+                            return;
+                        }
+                        
+                        // Skip to the requested exercise (convert to 0-based)
+                        this.currentExerciseIndex = exerciseNumber - 1;
+                        this.log(`Skipped to exercise ${exerciseNumber}`);
+                        
+                        // Send the exercise context to AI
+                        await this.sendNextExerciseContextToAI();
+                        
+                    } catch (error) {
+                        this.error("Error skipping to fitness exercise:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to skip to exercise: ${error.message}` });
+                    }
+                }
+                break;
+            case "end_fitness":
+                {
+                    const { userStopped } = args;
+                    this.log(`End fitness requested: userStopped=${userStopped}`);
+                    try {
+                        await this.endFitness(userStopped !== false);
+                    } catch (error) {
+                        this.error("Error ending fitness session:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to end fitness: ${error.message}` });
+                    }
+                }
+                break;
             // Add other function cases here if needed
             default:
                 this.warn(`Received unhandled function call: ${functionName}`)
@@ -822,15 +1669,20 @@ Your default language is English, but you should respond in the input audio lang
         // Extract and Queue Audio Data
         let extractedAudioData = content?.inlineData?.data;
         if (extractedAudioData) {
-            this.log(`Received audio data from Gemini (base64 length: ${extractedAudioData.length}, isMuted: ${this.isMuted})`);
+            this.log(`*** AUDIO RECEIVED: Received audio data from Gemini (base64 length: ${extractedAudioData.length}, isMuted: ${this.isMuted}, meditationMode: ${this.meditationMode}) ***`);
             this.audioQueue.push(extractedAudioData);
             this.log(`Audio queue length after push: ${this.audioQueue.length}`);
 
             if (!this.processingQueue) {
-                this.log(`Starting playback because audio received and queue not processing.`);
+                this.log(`*** AUDIO PLAYBACK: Starting playback because audio received and queue not processing ***`);
                 this.processQueue(false); // Start the playback loop
             } else {
                 this.log(`Audio queued but playback already in progress (queue length: ${this.audioQueue.length})`);
+            }
+        } else {
+            // Log when we get responses but no audio
+            if (content?.text || message?.toolCall) {
+                this.log(`*** NO AUDIO: Response received but no audio data (has text: ${!!content?.text}, has function call: ${!!message?.toolCall}) ***`);
             }
         }
 

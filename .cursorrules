@@ -1,0 +1,19 @@
+# Cursor AI Rules for MagicMirror Project
+
+## Git and GitHub Guidelines
+- **NEVER push changes to GitHub automatically**
+- **NEVER run git push commands unless the user explicitly asks to push to GitHub**
+- Only perform git add and git commit operations when making changes
+- Always ask for confirmation before pushing to remote repositories
+- If the user wants to push changes, they will explicitly request it with commands like "push to github" or "git push"
+
+## General Development Guidelines
+- Focus on code quality and functionality
+- Test changes locally before suggesting any git operations
+- Respect existing code style and patterns in the MagicMirror modules
+- Be conservative with external dependencies and installations
+
+## File Management
+- Be careful when modifying configuration files
+- Always backup important configurations before making changes
+- Respect .gitignore patterns and don't force-add ignored files

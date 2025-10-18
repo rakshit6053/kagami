@@ -349,6 +349,47 @@ Module.register("MMM-Gemini", {
         // this.currentState = "READY_TO_LISTEN";
         Log.warn(this.name + " Image generation blocked: " + payload.reason);
         break;
+      case "MEDITATION_STEP":
+        // Stop any existing timer first
+        this.sendNotification("INTERRUPT_STOPWATCHTIMER");
+        
+        // Hide any existing alert first
+        this.sendNotification("HIDE_ALERT");
+        
+        // Short delay to ensure timer is stopped and alert is hidden, then start new one
+        setTimeout(() => {
+          // Show meditation instruction as alert
+          this.sendNotification("SHOW_ALERT", {
+            title: `Meditation (Step ${payload.stepNumber}/${payload.totalSteps})`,
+            message: payload.instruction,
+            timer: payload.seconds * 1000 // Show for full duration
+          });
+          
+          // Start the visual countdown timer using MMM-StopwatchTimer
+          this.sendNotification("START_TIMER", payload.seconds);
+        }, 300);
+        
+        this.currentStatusText = `Meditation: Step ${payload.stepNumber}/${payload.totalSteps}`;
+        Log.info(this.name + " Started meditation step: " + payload.instruction);
+        break;
+      case "MEDITATION_STEP_DONE":
+        Log.info(this.name + " Meditation step " + (payload.idx + 1) + " completed");
+        break;
+      case "MEDITATION_COMPLETED":
+        this.sendNotification("SHOW_ALERT", { 
+          title: "Meditation Complete", 
+          message: "Well done! Your meditation session is finished.", 
+          timer: 5000 
+        });
+        this.sendNotification("INTERRUPT_STOPWATCHTIMER");
+        this.currentStatusText = "Meditation completed. Hold spacebar to talk.";
+        Log.info(this.name + " Meditation session completed");
+        break;
+      case "MEDITATION_ENDED":
+        this.sendNotification("INTERRUPT_STOPWATCHTIMER");
+        this.currentStatusText = "Meditation stopped. Hold spacebar to talk.";
+        Log.info(this.name + " Meditation session ended");
+        break;
       default:
           Log.warn(`${this.name} received unhandled notification: ${notification}`);
           break;
