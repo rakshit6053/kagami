@@ -62,6 +62,8 @@ Temporary Items
 !/modules/default
 !/modules/default/**
 !/modules/README.md**
+!/modules/MMM-Gemini
+!/modules/MMM-Gemini/**
 
 # Ignore changes to the custom css files but keep the sample and main.
 /css/*
