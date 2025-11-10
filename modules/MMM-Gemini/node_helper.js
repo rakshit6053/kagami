@@ -66,6 +66,10 @@ module.exports = NodeHelper.create({
     currentWorkoutPlan: null,
     currentExerciseIndex: 0,
     pendingFitnessTarget: null,
+    availablePlans: [], // Store fetched fitness plans for user selection
+    selectedPlanId: null, // Currently selected plan ID
+    supabaseClient: null, // Supabase client with prefetched data
+    supabaseDataReady: false, // Flag to indicate prefetch is complete
     userParams: {
         age: 30,           // Default age
         weight: 70,        // Default weight in kg
@@ -78,6 +82,27 @@ module.exports = NodeHelper.create({
     error: function(...args) { console.error(`[${new Date().toISOString()}] ERROR (${this.name}):`, ...args) },
     warn: function(...args) { console.warn(`[${new Date().toISOString()}] WARN (${this.name}):`, ...args) },
     sendToFrontend: function(notification, payload) { this.sendSocketNotification(notification, payload) },
+
+    // Initialize Supabase and prefetch all necessary data
+    async initializeSupabaseData() {
+        try {
+            const { SupabaseClient } = require('./lib/supabaseClient');
+            const { initializeSupabaseClient } = require('./lib/fitnessPlans');
+            
+            // Create client and prefetch data
+            this.supabaseClient = new SupabaseClient();
+            await this.supabaseClient.prefetchAllData();
+            
+            // Initialize fitness plans module with the client
+            initializeSupabaseClient(this.supabaseClient);
+            
+            this.supabaseDataReady = true;
+            this.log('Supabase data prefetched and ready!');
+        } catch (error) {
+            this.error('Error initializing Supabase data:', error);
+            this.supabaseDataReady = false;
+        }
+    },
 
     // Start interactive meditation session
     async startInteractiveMeditation(totalSeconds) {
@@ -106,7 +131,63 @@ module.exports = NodeHelper.create({
         }, 1000); // Wait for recording to be fully active
     },
 
-    // Start interactive fitness session  
+    // Start workout from selected plan (NEW WORKFLOW)
+    async startWorkoutFromPlan(planId) {
+        const { getNextIncompleteWorkout, buildWorkoutFromPlanDay } = require('./lib/fitnessPlans');
+        
+        try {
+            // Get the next incomplete workout
+            const nextWorkout = await getNextIncompleteWorkout(planId);
+            
+            if (!nextWorkout) {
+                this.log(`All workouts completed for plan ${planId}`);
+                // AI should announce completion through natural response
+                return;
+            }
+            
+            this.log(`Found incomplete workout: Week ${nextWorkout.weekNumber}, Day ${nextWorkout.dayNumber} - ${nextWorkout.focus}`);
+            
+            // Build the full workout details
+            const workout = await buildWorkoutFromPlanDay(
+                nextWorkout.planId,
+                nextWorkout.weekNumber,
+                nextWorkout.dayNumber
+            );
+            
+            this.currentWorkoutPlan = workout;
+            this.currentExerciseIndex = 0;
+            this.fitnessMode = true;
+            this.selectedPlanId = planId;
+            
+            // Disable muting and ensure continuous recording
+            this.isMuted = false;
+            
+            // Notify frontend that we're in open mic mode during fitness
+            this.sendToFrontend("RECORDING_STARTED");
+            
+            this.log(`Entering fitness mode: ${workout.name} with ${workout.totalExercises} exercises`);
+            this.sendToFrontend("FITNESS_MODE_STARTED", {
+                target: workout.target,
+                fitnessLevel: workout.fitnessLevel,
+                totalExercises: workout.totalExercises,
+                workoutName: workout.name,
+                weekNumber: workout.weekNumber,
+                dayNumber: workout.dayNumber,
+                focus: workout.focus
+            });
+            
+            // Send fitness context immediately to AI
+            setTimeout(() => {
+                this.sendFitnessContextToAI();
+            }, 1000); // Wait for recording to be fully active
+            
+        } catch (error) {
+            this.error("Error starting workout from plan:", error);
+            this.sendToFrontend("HELPER_ERROR", { error: `Failed to start workout: ${error.message}` });
+        }
+    },
+
+    // Start interactive fitness session (OLD WORKFLOW - kept for backwards compatibility)
     async startInteractiveFitness(target) {
         const { buildWorkoutPlan, calculateBMI } = require('./lib/fitnessPlans');
         
@@ -115,7 +196,7 @@ module.exports = NodeHelper.create({
             this.userParams.bmi = calculateBMI(this.userParams.weight, this.userParams.height);
             
             // Build the workout plan
-            this.currentWorkoutPlan = buildWorkoutPlan(target, this.userParams);
+            this.currentWorkoutPlan = await buildWorkoutPlan(target, this.userParams);
             this.currentExerciseIndex = 0;
             this.fitnessMode = true;
             
@@ -197,7 +278,15 @@ module.exports = NodeHelper.create({
         }
 
         const firstExercise = this.currentWorkoutPlan.exercises[0];
-        const contextText = `Exercise 1: ${firstExercise.exercise}. ${firstExercise.reps} repetitions. ${firstExercise.instruction}`;
+        const workout = this.currentWorkoutPlan;
+        
+        const contextText = `[SPEAK TO USER]: "Great! Let's start your ${workout.name} workout. This is Week ${workout.weekNumber}, Day ${workout.dayNumber} focusing on ${workout.focus}. We have ${workout.totalExercises} exercises to do today. Let me guide you through them one by one.
+
+First exercise: ${firstExercise.exercise}. Do ${firstExercise.reps} repetitions. ${firstExercise.instruction}
+
+Let me know when you're done with this exercise by saying 'done' or 'finished'."
+
+[INSTRUCTION]: You are now in FITNESS MODE. After speaking the above, stop talking and wait silently for the user to say "done", "finished", "next", or similar. When they do, call the next_fitness_exercise function to move to the next exercise. Do NOT read ahead or list all exercises.`;
 
         try {
             this.log("Sending fitness context as text to AI");
@@ -219,12 +308,18 @@ module.exports = NodeHelper.create({
         }
 
         const currentExercise = this.currentWorkoutPlan.exercises[this.currentExerciseIndex];
-        const exerciseText = `Exercise ${currentExercise.exerciseNumber}: ${currentExercise.exercise}. ${currentExercise.reps} repetitions. ${currentExercise.instruction}`;
+        const isLastExercise = this.currentExerciseIndex >= this.currentWorkoutPlan.totalExercises - 1;
+        
+        const contextText = `[SPEAK TO USER]: "Next exercise: ${currentExercise.exercise}. Do ${currentExercise.reps} repetitions. ${currentExercise.instruction}
+
+${isLastExercise ? "This is the last exercise. " : ""}Let me know when you're done."
+
+[INSTRUCTION]: Stop talking and wait for the user to say "done" or "finished". ${isLastExercise ? "After they finish, the workout will be complete." : "Then call next_fitness_exercise to continue."}`;
 
         try {
             this.log(`Sending next exercise ${this.currentExerciseIndex + 1} context to AI`);
             const textPayload = {
-                text: exerciseText
+                text: contextText
             };
             await this.liveSession.sendRealtimeInput(textPayload);
             this.log("Next exercise context sent successfully");
@@ -260,7 +355,7 @@ You can help with:
 - Motivational quotes, jokes, or fun facts
 - Casual small talk or greetings
 - Guided meditation sessions: When a user asks to meditate or start a meditation session, ask for duration if not provided, then enter meditation mode where you read the meditation plan step by step and wait for user confirmation to proceed
-- Fitness workout sessions: When a user asks to start a workout or exercise, ask for target area if not provided (arms, legs, core, back, fullbody), then enter fitness mode where you guide through exercises step by step
+- Fitness workout sessions: When a user asks to start a workout or exercise, CALL list_fitness_plans to fetch their plans from the database. You will receive ONLY the plans that exist for this specific user - DO NOT mention any other plans or make up plans. Present ONLY the plans from the retrieved list to the user and ask which one they want to do. After they choose, extract the Plan ID from the list and CALL select_fitness_plan with the correct UUID Plan ID (never read UUIDs out loud - only use them for function calls)
 - Emergency exit: If user says "switch to push to talk", "exit to push to talk", or "peaches" at ANY time, immediately call switch_to_push_to_talk function
 - Open mic mode: If user says "switch to open mic", "enable open mic", "continuous listening" while in push-to-talk mode, call switch_to_open_mic function
 
@@ -301,6 +396,12 @@ Your default language is English, but you should respond in the input audio lang
         if (this.fitnessMode && this.currentWorkoutPlan) {
             const fitnessContext = this.buildFitnessContext();
             basePrompt += `\n\n${fitnessContext}`;
+        }
+
+        // Add available plans context if plans were just fetched
+        if (this.availablePlans && this.availablePlans.length > 0 && !this.fitnessMode) {
+            const plansContext = this.buildAvailablePlansContext();
+            basePrompt += `\n\n${plansContext}`;
         }
 
         return basePrompt;
@@ -374,6 +475,31 @@ FITNESS COMMANDS (MUST CALL FUNCTIONS):
 IMPORTANT: When user wants to end or exit, DO NOT just say "okay ending workout" - you MUST actually call the end_fitness or switch_to_push_to_talk function!`;
     },
 
+    // Build available plans context for AI
+    buildAvailablePlansContext() {
+        if (!this.availablePlans || this.availablePlans.length === 0) return "";
+        
+        const plansList = this.availablePlans.map((plan, index) => 
+            `${index + 1}. ${plan.name} - Targets: ${plan.targetAreas.join(', ')} - ${plan.duration} weeks (ID: ${plan.id})`
+        ).join('\n');
+        
+        return `
+
+AVAILABLE FITNESS PLANS FROM SUPABASE:
+
+The user has ${this.availablePlans.length} fitness plan(s) available:
+
+${plansList}
+
+ACTION: Present these plans to the user naturally and ask which one they'd like to do today.
+
+When user selects a plan (by number, name, or target area), identify the correct plan ID and CALL select_fitness_plan function with that planId.
+
+IMPORTANT: You MUST call the select_fitness_plan function with the correct plan ID. Do not just acknowledge - actually select the plan!
+
+After calling select_fitness_plan, the system will automatically find the next incomplete workout from that plan and start it. You don't need to ask for specific exercises or days.`;
+    },
+
     // Handle meditation progression 
     async progressMeditation() {
         if (!this.meditationMode || !this.currentMeditationPlan) return false;
@@ -443,6 +569,8 @@ IMPORTANT: When user wants to end or exit, DO NOT just say "okay ending workout"
         this.currentWorkoutPlan = null;
         this.currentExerciseIndex = 0;
         this.pendingFitnessTarget = null;
+        this.availablePlans = []; // Clear plans list
+        this.selectedPlanId = null; // Clear selected plan
         
         // Restore hold-to-talk mode by stopping recording (but keeping connection open)
         if (this.isRecording) {
@@ -811,17 +939,30 @@ IMPORTANT: When user wants to end or exit, DO NOT just say "okay ending workout"
                                 }
                             },
                             {
-                                name: "start_fitness",
-                                description: "Start a fitness workout session. If target area is missing, ask the user for target (arms, legs, core, back, fullbody).",
+                                name: "list_fitness_plans",
+                                description: "List all available fitness plans for the user to choose from. Call this when user wants to start a workout.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {},
+                                    required: []
+                                }
+                            },
+                            {
+                                name: "select_fitness_plan",
+                                description: "Select a specific fitness plan and start the next incomplete workout. Call after user chooses a plan from the list. IMPORTANT: planId must be the UUID from the plan list (e.g., 'ee352755-9bc8-467d-b7dd-d6d5bf33fe38'), NOT the plan name or target areas.",
                                 parameters: {
                                     type: Type.OBJECT,
                                     properties: { 
-                                        target: { 
+                                        planId: { 
                                             type: Type.STRING, 
-                                            description: "Target muscle group: arms, legs, core, back, or fullbody"
-                                        } 
+                                            description: "The UUID Plan ID from the fitness plans list (e.g., 'ee352755-9bc8-467d-b7dd-d6d5bf33fe38'). This is the 'Plan ID' shown after each plan option."
+                                        },
+                                        planName: {
+                                            type: Type.STRING,
+                                            description: "The name of the selected plan (for confirmation)"
+                                        }
                                     },
-                                    required: []
+                                    required: ["planId"]
                                 }
                             },
                             {
@@ -920,6 +1061,12 @@ IMPORTANT: When user wants to end or exit, DO NOT just say "okay ending workout"
                     this.log('User location received and stored:', this.userLocation);
                 } else {
                     this.log('No location data received in INIT payload.');
+                }
+
+                // Initialize Supabase and prefetch data
+                if (!this.supabaseDataReady) {
+                    this.log('Initializing Supabase and prefetching fitness/wellness data...');
+                    await this.initializeSupabaseData();
                 }
                 break;
             case "START_CONNECTION": // This is now mostly a legacy path, INIT should handle API key
@@ -1532,20 +1679,73 @@ IMPORTANT: When user wants to end or exit, DO NOT just say "okay ending workout"
                     }
                 }
                 break;
-            case "start_fitness":
+            case "list_fitness_plans":
                 {
-                    const target = args.target;
-                    if (!target) {
-                        this.log("Fitness requested without target area, asking user for target");
-                        // Don't call speak here - let Gemini handle asking naturally
-                        return; // Gemini will ask for target through its normal response
+                    this.log("Listing available fitness plans from cache");
+                    try {
+                        const { getAllFitnessPlans } = require('./lib/fitnessPlans');
+                        
+                        // Get plans from cache (no async fetch!)
+                        const plans = getAllFitnessPlans();
+                        
+                        if (!plans || plans.length === 0) {
+                            this.log("No fitness plans found in cache");
+                            // Store empty plans list for AI to respond appropriately
+                            this.availablePlans = [];
+                            
+                            // Send context to AI
+                            if (this.liveSession && this.connectionOpen) {
+                                await this.liveSession.sendRealtimeInput({ 
+                                    text: "No fitness plans found in your account. Please add some fitness plans first." 
+                                });
+                            }
+                            return;
+                        }
+                        
+                        // Store plans for AI context
+                        this.availablePlans = plans;
+                        this.log(`Found ${plans.length} fitness plans in cache:`, plans.map(p => p.name).join(', '));
+                        
+                        // Send context to AI with the plans list including IDs
+                        if (this.liveSession && this.connectionOpen) {
+                            // User-friendly text to speak (numbered list format)
+                            const speakText = plans.map((p, i) => 
+                                `Option ${i + 1}: ${p.name}, which targets ${p.targetAreas.join(' and ')}, a ${p.duration} week program`
+                            ).join('. ');
+                            
+                            // Internal mapping for AI to use (not spoken)
+                            const planMapping = plans.map((p, i) => 
+                                `Option ${i + 1} -> Plan ID: ${p.id}`
+                            ).join('\n');
+                            
+                            const contextText = `CRITICAL INSTRUCTION: You have retrieved exactly ${plans.length} fitness plan(s) from the database for this user. DO NOT mention any other plans or make up additional plans.
+
+[SPEAK EXACTLY THIS TO USER]:
+"You have ${plans.length} fitness plan${plans.length > 1 ? 's' : ''} available. ${speakText}. Which one would you like to do today?"
+
+[INTERNAL PLAN ID MAPPING - DO NOT READ THESE UUIDs OUT LOUD]:
+${planMapping}
+
+[NEXT STEP]: Wait for the user to choose a plan by saying a number (1 or 2) or the plan name. Then use the Plan ID from the mapping above to call select_fitness_plan. DO NOT read the UUID out loud - only use it for the function call.`;
+                            
+                            await this.liveSession.sendRealtimeInput({ text: contextText });
+                            this.log("Sent fitness plans context to AI");
+                        }
+                    } catch (error) {
+                        this.error("Error listing fitness plans:", error);
+                        this.availablePlans = [];
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to list fitness plans: ${error.message}` });
                     }
+                }
+                break;
+            case "select_fitness_plan":
+                {
+                    const planId = args.planId;
+                    const planName = args.planName || 'Selected Plan';
                     
-                    // Validate target area
-                    const { availableTargets } = require('./lib/fitnessPlans');
-                    if (!availableTargets.includes(target.toLowerCase())) {
-                        this.log(`Invalid target area: ${target}. Valid options: ${availableTargets.join(', ')}`);
-                        return; // Let Gemini handle validation
+                    if (!planId) {
+                        this.log("Plan selection attempted without planId");
+                        return;
                     }
                     
                     // Check if fitness session is already active
@@ -1554,9 +1754,10 @@ IMPORTANT: When user wants to end or exit, DO NOT just say "okay ending workout"
                         return;
                     }
                     
-                    this.log(`Starting fitness session for target: ${target}`);
+                    this.log(`Starting fitness session for plan: ${planName} (${planId})`);
                     try {
-                        await this.startInteractiveFitness(target.toLowerCase());
+                        await this.startWorkoutFromPlan(planId);
+                        // startWorkoutFromPlan already sends fitness context to AI
                     } catch (error) {
                         this.error("Error starting fitness session:", error);
                         this.sendToFrontend("HELPER_ERROR", { error: `Failed to start fitness: ${error.message}` });

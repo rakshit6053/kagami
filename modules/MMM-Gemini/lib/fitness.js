@@ -31,7 +31,8 @@ class FitnessAgent {
     this.clear();
     
     try {
-      const plan = buildWorkoutPlan(target, userParams);
+      // buildWorkoutPlan is now async, so we need to await it
+      const plan = await buildWorkoutPlan(target, userParams);
       this.session = { plan, exerciseIndex: 0, userParams };
       
       this.log(`Starting fitness session: ${plan.name}, ${plan.totalExercises} exercises`);

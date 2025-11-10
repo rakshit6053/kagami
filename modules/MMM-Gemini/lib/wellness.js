@@ -28,7 +28,8 @@ class WellnessAgent {
   async start({ totalSeconds }) {
     const { buildPlan } = require('./meditationPlan');
     this.clear();
-    const plan = buildPlan(totalSeconds);
+    // buildPlan is now async, so we need to await it
+    const plan = await buildPlan(totalSeconds);
     this.session = { plan, idx: 0 };
     this.log(`Starting meditation session: ${plan.totalDuration}s total, ${plan.steps.length} steps`);
     await this._announceAndRunCurrent();

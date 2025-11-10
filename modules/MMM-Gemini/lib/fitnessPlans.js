@@ -14,140 +14,153 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Fitness plans for different target areas and fitness levels
-const fitnessPlans = {
-  arms: {
-    beginner: [
-      { exercise: "Wall push-ups", reps: "10-15", instruction: "Stand arm's length from wall, push against it. Focus on controlled movement." },
-      { exercise: "Arm circles", reps: "10 forward, 10 backward", instruction: "Extend arms to sides, make small circles, gradually increase size." },
-      { exercise: "Modified tricep dips", reps: "8-12", instruction: "Use a sturdy chair, keep feet on ground, lower and raise your body." },
-      { exercise: "Bicep curls (no weights)", reps: "10-15", instruction: "Flex arms up and down, squeeze biceps at the top." },
-      { exercise: "Shoulder shrugs", reps: "15", instruction: "Lift shoulders to ears, hold for 2 seconds, release." }
-    ],
-    intermediate: [
-      { exercise: "Push-ups", reps: "10-20", instruction: "Standard push-ups, keep body straight, chest to ground." },
-      { exercise: "Pike push-ups", reps: "8-12", instruction: "Downward dog position, push up focusing on shoulders." },
-      { exercise: "Tricep dips", reps: "10-15", instruction: "Feet elevated, lower body using triceps, push back up." },
-      { exercise: "Plank to downward dog", reps: "10", instruction: "Start in plank, push hips up to downward dog, return to plank." },
-      { exercise: "Diamond push-ups", reps: "8-12", instruction: "Hands form diamond shape, targets triceps more intensely." }
-    ],
-    advanced: [
-      { exercise: "One-arm push-ups progression", reps: "5-8 each arm", instruction: "Start with assisted one-arm push-ups, work toward full movement." },
-      { exercise: "Handstand push-ups", reps: "5-10", instruction: "Against wall, lower head to ground and push back up." },
-      { exercise: "Archer push-ups", reps: "6-10 each side", instruction: "Wide grip, shift weight to one arm while extending the other." },
-      { exercise: "Pseudo planche push-ups", reps: "8-12", instruction: "Hands by ribs, lean forward, push up maintaining forward lean." },
-      { exercise: "Ring/TRX tricep extensions", reps: "10-15", instruction: "If available, lean forward and extend arms overhead." }
-    ]
-  },
-  
-  legs: {
-    beginner: [
-      { exercise: "Bodyweight squats", reps: "10-15", instruction: "Feet shoulder-width apart, sit back like sitting in chair." },
-      { exercise: "Wall sits", reps: "20-30 seconds", instruction: "Back against wall, slide down to sitting position, hold." },
-      { exercise: "Calf raises", reps: "15-20", instruction: "Rise up on toes, hold briefly, lower slowly." },
-      { exercise: "Lunges", reps: "8-10 each leg", instruction: "Step forward, lower back knee toward ground, push back up." },
-      { exercise: "Glute bridges", reps: "10-15", instruction: "Lie on back, lift hips up, squeeze glutes at top." }
-    ],
-    intermediate: [
-      { exercise: "Jump squats", reps: "10-15", instruction: "Regular squat but explode up into a jump, land softly." },
-      { exercise: "Bulgarian split squats", reps: "10-12 each leg", instruction: "Rear foot elevated, lunge down on front leg." },
-      { exercise: "Single-leg calf raises", reps: "10-15 each leg", instruction: "One foot at a time, focus on balance and control." },
-      { exercise: "Lateral lunges", reps: "10-12 each side", instruction: "Step wide to one side, sit into that hip, push back." },
-      { exercise: "Single-leg glute bridges", reps: "8-12 each leg", instruction: "One leg extended, lift hips using other leg." }
-    ],
-    advanced: [
-      { exercise: "Pistol squats progression", reps: "5-8 each leg", instruction: "Single-leg squat, use assistance as needed to build strength." },
-      { exercise: "Jump lunges", reps: "10-15 each leg", instruction: "Explosive switch between lunge positions in mid-air." },
-      { exercise: "Single-leg deadlifts", reps: "8-10 each leg", instruction: "Hinge at hip on one leg, reach toward ground, return upright." },
-      { exercise: "Curtsy lunges", reps: "10-12 each side", instruction: "Step diagonally back and across, lunge down, return to start." },
-      { exercise: "Plyometric squat variations", reps: "8-12", instruction: "Mix of jump squats, squat jacks, and explosive movements." }
-    ]
-  },
-  
-  core: {
-    beginner: [
-      { exercise: "Plank", reps: "20-30 seconds", instruction: "Hold straight line from head to heels, engage core." },
-      { exercise: "Modified crunches", reps: "10-15", instruction: "Knees bent, hands behind head, lift shoulders off ground." },
-      { exercise: "Dead bug", reps: "8-10 each side", instruction: "On back, opposite arm and leg extensions, keep core tight." },
-      { exercise: "Bird dog", reps: "8-10 each side", instruction: "On hands and knees, extend opposite arm and leg." },
-      { exercise: "Knee to chest", reps: "10-15", instruction: "Lying down, bring knees to chest, feel abdominal engagement." }
-    ],
-    intermediate: [
-      { exercise: "Plank variations", reps: "45-60 seconds", instruction: "Standard, side planks, and plank with leg lifts." },
-      { exercise: "Bicycle crunches", reps: "15-20 each side", instruction: "Opposite elbow to knee, keep other leg extended." },
-      { exercise: "Russian twists", reps: "15-20 each side", instruction: "Seated, lean back slightly, twist torso side to side." },
-      { exercise: "Mountain climbers", reps: "15-20 each leg", instruction: "Plank position, alternate bringing knees to chest rapidly." },
-      { exercise: "Hollow body hold", reps: "20-30 seconds", instruction: "Press lower back down, lift shoulders and legs off ground." }
-    ],
-    advanced: [
-      { exercise: "Plank to pike", reps: "10-15", instruction: "From plank, jump feet toward hands, jump back to plank." },
-      { exercise: "V-ups", reps: "12-18", instruction: "Lying down, simultaneously lift legs and torso to touch toes." },
-      { exercise: "Dragon flags", reps: "5-8", instruction: "Advanced move: body straight, lower/raise using core only." },
-      { exercise: "L-sits", reps: "10-20 seconds", instruction: "Seated, hands beside hips, lift entire body off ground." },
-      { exercise: "Hanging leg raises", reps: "8-12", instruction: "If pullup bar available, hang and raise legs to horizontal." }
-    ]
-  },
-  
-  back: {
-    beginner: [
-      { exercise: "Cat-cow stretches", reps: "10-15", instruction: "On hands and knees, arch and round back alternately." },
-      { exercise: "Superman", reps: "10-15", instruction: "Lie face down, lift chest and legs off ground simultaneously." },
-      { exercise: "Reverse snow angels", reps: "10-15", instruction: "Face down, arms overhead, lift and sweep arms in arc." },
-      { exercise: "Wall angels", reps: "10-15", instruction: "Back to wall, slide arms up and down maintaining contact." },
-      { exercise: "Prone Y-raises", reps: "10-12", instruction: "Face down, arms in Y position, lift off ground." }
-    ],
-    intermediate: [
-      { exercise: "Superman variations", reps: "12-18", instruction: "Add arm and leg combinations, hold for 2-3 seconds." },
-      { exercise: "Reverse fly", reps: "12-15", instruction: "Bent over, arms out to sides, squeeze shoulder blades together." },
-      { exercise: "Single-arm row (no weights)", reps: "10-12 each arm", instruction: "Bent over, pull elbow back, squeeze back muscles." },
-      { exercise: "Good mornings", reps: "10-15", instruction: "Hands behind head, hinge at hips, feel back muscles engage." },
-      { exercise: "Dolphin pose", reps: "8-10", instruction: "Forearms down, push hips up, lower and raise body." }
-    ],
-    advanced: [
-      { exercise: "Archer pull-ups", reps: "5-8 each side", instruction: "If bar available, pull to one side, extend other arm." },
-      { exercise: "Inverted rows", reps: "10-15", instruction: "Under table or bar, pull chest up to surface." },
-      { exercise: "Back bridge progressions", reps: "Hold 15-30 seconds", instruction: "Work toward full back bridge, start with supported versions." },
-      { exercise: "Single-arm Superman", reps: "8-10 each side", instruction: "Lift opposite arm and leg, focus on back engagement." },
-      { exercise: "Pull-up negatives", reps: "5-8", instruction: "If bar available, start at top, lower slowly with control." }
-    ]
-  },
-  
-  fullbody: {
-    beginner: [
-      { exercise: "Bodyweight squats", reps: "8-12", instruction: "Full body warm-up, engage legs and core." },
-      { exercise: "Modified push-ups", reps: "6-10", instruction: "Knee or wall push-ups, work chest, arms, and core." },
-      { exercise: "Plank", reps: "15-20 seconds", instruction: "Total body stabilization, focus on form." },
-      { exercise: "Glute bridges", reps: "10-12", instruction: "Activate posterior chain, core stability." },
-      { exercise: "Marching in place", reps: "30 seconds", instruction: "Get heart rate up, coordinate full body movement." }
-    ],
-    intermediate: [
-      { exercise: "Burpees", reps: "8-12", instruction: "Squat, jump back to plank, push-up, jump forward, jump up." },
-      { exercise: "Mountain climbers", reps: "20-30 seconds", instruction: "Cardio and core, maintain plank position." },
-      { exercise: "Squat to press", reps: "10-15", instruction: "Squat down, stand and press arms overhead." },
-      { exercise: "Plank jacks", reps: "15-20", instruction: "In plank, jump feet wide and narrow like jumping jacks." },
-      { exercise: "Reverse lunge to knee drive", reps: "8-10 each leg", instruction: "Step back, lunge, bring knee up explosively." }
-    ],
-    advanced: [
-      { exercise: "Burpee variations", reps: "10-15", instruction: "Add push-ups, tuck jumps, or single-arm versions." },
-      { exercise: "Turkish get-ups", reps: "3-5 each side", instruction: "Complex movement from lying to standing, total body coordination." },
-      { exercise: "Sprawls", reps: "10-15", instruction: "Similar to burpee but no jump, focus on speed and flow." },
-      { exercise: "Bear crawl", reps: "30-45 seconds", instruction: "Hands and feet only, crawl forward/backward/sideways." },
-      { exercise: "Manmakers", reps: "6-10", instruction: "Push-up, row each arm, jump to squat, overhead press." }
-    ]
-  }
-};
+const { SupabaseClient } = require('./supabaseClient');
 
-// Calculate BMI
+// Global Supabase client instance (will be initialized on module start)
+let supabaseClient = null;
+
+/**
+ * Initialize the Supabase client (called once on module start)
+ * @param {SupabaseClient} client - The initialized Supabase client
+ */
+function initializeSupabaseClient(client) {
+  supabaseClient = client;
+}
+
+/**
+ * Get fitness plans from the prefetched cache
+ * @returns {Array} Array of fitness plans from cache
+ */
+function getFitnessPlansFromCache() {
+  if (!supabaseClient) {
+    console.error('Supabase client not initialized!');
+    return [];
+  }
+  return supabaseClient.getCachedFitnessPlans();
+}
+
+/**
+ * Find the most appropriate fitness plan based on target areas
+ * @param {string|Array<string>} target - Target area(s) like 'arms', 'legs', 'core', etc.
+ * @param {Object} userParams - User parameters (optional, for backwards compatibility)
+ * @returns {Promise<Object>} The selected fitness plan with exercises
+ */
+async function buildWorkoutPlan(target, userParams = {}) {
+  try {
+    const plans = getFitnessPlansFromCache();
+    
+    if (!plans || plans.length === 0) {
+      throw new Error('No fitness plans found in cache');
+    }
+
+    // Normalize target to array
+    let targetAreas = Array.isArray(target) ? target : [target];
+    targetAreas = targetAreas.map(t => t.toLowerCase());
+
+    // Find the best matching plan based on target areas
+    let selectedPlan = null;
+    
+    // First, try to find an exact match
+    for (const plan of plans) {
+      const planTargets = plan.target_areas.map(t => t.toLowerCase());
+      const matchCount = targetAreas.filter(t => planTargets.includes(t)).length;
+      
+      if (matchCount === targetAreas.length && matchCount === planTargets.length) {
+        selectedPlan = plan;
+        break;
+      }
+    }
+
+    // If no exact match, find plan with most overlapping targets
+    if (!selectedPlan) {
+      let maxMatch = 0;
+      for (const plan of plans) {
+        const planTargets = plan.target_areas.map(t => t.toLowerCase());
+        const matchCount = targetAreas.filter(t => planTargets.includes(t)).length;
+        
+        if (matchCount > maxMatch) {
+          maxMatch = matchCount;
+          selectedPlan = plan;
+        }
+      }
+    }
+
+    // If still no plan found, use the first available plan
+    if (!selectedPlan) {
+      console.warn(`No plan found matching targets: ${targetAreas.join(', ')}. Using first available plan.`);
+      selectedPlan = plans[0];
+    }
+
+    // Transform the Supabase plan data into the format expected by the fitness agent
+    return transformSupabasePlanToWorkoutFormat(selectedPlan);
+  } catch (error) {
+    console.error('Error building workout plan:', error);
+    throw error;
+  }
+}
+
+/**
+ * Transform Supabase plan data to the format expected by the fitness agent
+ * @param {Object} supabasePlan - Plan data from Supabase
+ * @returns {Object} Transformed workout plan
+ */
+function transformSupabasePlanToWorkoutFormat(supabasePlan) {
+  const planData = supabasePlan.plan_data;
+  
+  // Get the current week (for simplicity, we'll use week 1, but this could be made dynamic)
+  const currentWeekIndex = 0;
+  const currentWeek = planData.weeks[currentWeekIndex];
+  
+  // Get all non-rest day exercises from the current week
+  const exercises = [];
+  let exerciseNumber = 1;
+  
+  for (const day of currentWeek.days) {
+    if (!day.rest_day && day.tasks && day.tasks.length > 0) {
+      for (const task of day.tasks) {
+        // Skip warm-up and cool-down exercises for the workout routine
+        if (task.exercise && 
+            !task.exercise.toLowerCase().includes('warm-up') && 
+            !task.exercise.toLowerCase().includes('cool-down')) {
+          
+          exercises.push({
+            exerciseNumber: exerciseNumber++,
+            exercise: task.exercise,
+            reps: task.details || 'As specified',
+            instruction: task.instructions || task.details || '',
+            restAfter: 30 // Default rest time, can be adjusted based on difficulty
+          });
+        }
+      }
+    }
+  }
+
+  // Determine fitness level from the plan data or default to intermediate
+  const difficulty = planData.plan_overview?.difficulty || 'intermediate';
+  
+  return {
+    name: supabasePlan.plan_name || 'Custom Workout Plan',
+    target: supabasePlan.target_areas.join(', '),
+    fitnessLevel: difficulty,
+    restTime: difficulty === 'beginner' ? 45 : difficulty === 'intermediate' ? 30 : 20,
+    totalExercises: exercises.length,
+    exercises: exercises
+  };
+}
+
+/**
+ * Calculate BMI (kept for backwards compatibility)
+ */
 function calculateBMI(weight, height) {
-  // height in meters, weight in kg
   return weight / (height * height);
 }
 
-// Determine fitness level based on user parameters
+/**
+ * Determine fitness level (kept for backwards compatibility)
+ */
 function determineFitnessLevel(userParams) {
   const { age, bmi, fitnessExperience } = userParams;
   
-  // Simple logic - can be enhanced based on more parameters
   if (fitnessExperience === 'none' || bmi > 30 || age > 65) {
     return 'beginner';
   } else if (fitnessExperience === 'some' || (bmi >= 25 && bmi <= 30) || (age >= 50 && age <= 65)) {
@@ -157,41 +170,201 @@ function determineFitnessLevel(userParams) {
   }
 }
 
-// Build workout plan based on target and user parameters
-function buildWorkoutPlan(target, userParams) {
-  if (!fitnessPlans[target]) {
-    throw new Error(`Unknown target area: ${target}`);
+/**
+ * Get available target areas from Supabase plans
+ */
+function getAvailableTargets() {
+  try {
+    const plans = getFitnessPlansFromCache();
+    const targets = new Set();
+    
+    for (const plan of plans) {
+      if (plan.target_areas) {
+        plan.target_areas.forEach(target => targets.add(target.toLowerCase()));
+      }
+    }
+    
+    return Array.from(targets);
+  } catch (error) {
+    console.error('Error getting available targets:', error);
+    return ['arms', 'legs', 'core', 'back', 'fullbody']; // Fallback defaults
   }
-  
-  const fitnessLevel = determineFitnessLevel(userParams);
-  const exercises = fitnessPlans[target][fitnessLevel];
-  
-  // Calculate rest time based on fitness level
-  const restTime = {
-    beginner: 45,     // 45 seconds rest
-    intermediate: 30, // 30 seconds rest  
-    advanced: 20      // 20 seconds rest
-  }[fitnessLevel];
+}
+
+/**
+ * Get all available fitness plans (no auto-selection)
+ * @returns {Array} Array of all fitness plans from cache
+ */
+function getAllFitnessPlans() {
+  try {
+    const plans = getFitnessPlansFromCache();
+    
+    if (!plans || plans.length === 0) {
+      return [];
+    }
+
+    // Return simplified plan info for user selection
+    return plans.map(plan => ({
+      id: plan.id,
+      name: plan.plan_name,
+      targetAreas: plan.target_areas,
+      duration: plan.duration_weeks,
+      fullPlan: plan // Keep full plan data for later use
+    }));
+  } catch (error) {
+    console.error('Error getting all fitness plans:', error);
+    return [];
+  }
+}
+
+/**
+ * Get the next incomplete workout from a specific plan
+ * @param {string} planId - The plan ID
+ * @returns {Promise<Object>} Next incomplete workout with exercises
+ */
+async function getNextIncompleteWorkout(planId) {
+  try {
+    if (!supabaseClient) {
+      throw new Error('Supabase client not initialized');
+    }
+    
+    const plans = getFitnessPlansFromCache();
+    
+    // Find the plan
+    const plan = plans.find(p => p.id === planId);
+    if (!plan) {
+      throw new Error(`Plan not found: ${planId}`);
+    }
+
+    // Get completed days
+    const completedDays = await supabaseClient.getCompletedDays(planId);
+    const completedSet = new Set(completedDays);
+
+    // Find the first incomplete day
+    const planData = plan.plan_data;
+    
+    for (const week of planData.weeks) {
+      for (const day of week.days) {
+        const dayId = `week${week.week_number}_day${day.day_number}`;
+        
+        // Skip rest days and completed days
+        if (day.rest_day || completedSet.has(dayId)) {
+          continue;
+        }
+
+        // Found an incomplete workout!
+        return {
+          planId: plan.id,
+          planName: plan.plan_name,
+          weekNumber: week.week_number,
+          dayNumber: day.day_number,
+          dayId: dayId,
+          focus: day.focus,
+          exercises: extractExercisesFromDay(day),
+          targetAreas: plan.target_areas
+        };
+      }
+    }
+
+    // All workouts completed
+    return null;
+  } catch (error) {
+    console.error('Error getting next incomplete workout:', error);
+    throw error;
+  }
+}
+
+/**
+ * Extract exercises from a day's tasks
+ * @param {Object} day - Day object from plan data
+ * @returns {Array} Array of exercises
+ */
+function extractExercisesFromDay(day) {
+  const exercises = [];
+  let exerciseNumber = 1;
+
+  if (!day.tasks || day.tasks.length === 0) {
+    return exercises;
+  }
+
+  for (const task of day.tasks) {
+    // Skip warm-up and cool-down exercises
+    if (task.exercise && 
+        !task.exercise.toLowerCase().includes('warm-up') && 
+        !task.exercise.toLowerCase().includes('cool-down')) {
+      
+      exercises.push({
+        exerciseNumber: exerciseNumber++,
+        exercise: task.exercise,
+        reps: task.details || 'As specified',
+        instruction: task.instructions || task.details || '',
+        difficulty: task.difficulty || 'intermediate'
+      });
+    }
+  }
+
+  return exercises;
+}
+
+/**
+ * Build workout from a specific plan and day (used by new workflow)
+ * @param {string} planId - The plan ID
+ * @param {number} weekNumber - Week number
+ * @param {number} dayNumber - Day number
+ * @returns {Promise<Object>} Workout details
+ */
+async function buildWorkoutFromPlanDay(planId, weekNumber, dayNumber) {
+  try {
+    const plans = getFitnessPlansFromCache();
+    const plan = plans.find(p => p.id === planId);
+    
+    if (!plan) {
+      throw new Error(`Plan not found: ${planId}`);
+    }
+
+    const planData = plan.plan_data;
+    const week = planData.weeks.find(w => w.week_number === weekNumber);
+    
+    if (!week) {
+      throw new Error(`Week ${weekNumber} not found in plan`);
+    }
+
+    const day = week.days.find(d => d.day_number === dayNumber);
+    
+    if (!day) {
+      throw new Error(`Day ${dayNumber} not found in week ${weekNumber}`);
+    }
+
+    const exercises = extractExercisesFromDay(day);
+    const difficulty = planData.plan_overview?.difficulty || 'intermediate';
   
   return {
-    name: `${target.charAt(0).toUpperCase() + target.slice(1)} Workout - ${fitnessLevel.charAt(0).toUpperCase() + fitnessLevel.slice(1)}`,
-    target,
-    fitnessLevel,
-    restTime,
+      planId: plan.id,
+      name: `${plan.plan_name} - ${day.focus}`,
+      target: plan.target_areas.join(', '),
+      fitnessLevel: difficulty,
+      restTime: difficulty === 'beginner' ? 45 : difficulty === 'intermediate' ? 30 : 20,
     totalExercises: exercises.length,
-    exercises: exercises.map((ex, i) => ({
-      exerciseNumber: i + 1,
-      exercise: ex.exercise,
-      reps: ex.reps,
-      instruction: ex.instruction,
-      restAfter: i < exercises.length - 1 ? restTime : 0 // No rest after last exercise
-    }))
-  };
+      exercises: exercises,
+      weekNumber: weekNumber,
+      dayNumber: dayNumber,
+      dayId: `week${weekNumber}_day${dayNumber}`,
+      focus: day.focus
+    };
+  } catch (error) {
+    console.error('Error building workout from plan day:', error);
+    throw error;
+  }
 }
 
 module.exports = { 
+  initializeSupabaseClient, // Initialize the client with prefetched data
   buildWorkoutPlan, 
   calculateBMI, 
   determineFitnessLevel,
-  availableTargets: Object.keys(fitnessPlans)
+  availableTargets: ['arms', 'legs', 'core', 'back', 'fullbody', 'shoulders', 'glutes'], // Static list for immediate access
+  getAvailableTargets, // Dynamic function to get actual targets from cache
+  getAllFitnessPlans, // Get all plans for user selection from cache
+  getNextIncompleteWorkout, // Get next incomplete workout from a plan
+  buildWorkoutFromPlanDay // Build specific workout from plan/week/day
 };
