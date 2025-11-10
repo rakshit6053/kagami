@@ -47,6 +47,7 @@ class SupabaseClient {
       fitnessProfile: null,
       wellnessProfile: null,
       userData: null,
+      wardrobeItems: null,
       lastPrefetch: null
     };
   }
@@ -68,13 +69,15 @@ class SupabaseClient {
         wellnessPlans,
         fitnessProfile,
         wellnessProfile,
-        userData
+        userData,
+        wardrobeItems
       ] = await Promise.all([
         this.getFitnessPlans(),
         this.getWellnessPlans(),
         this.getFitnessProfile(),
         this.getWellnessProfile(),
-        this.getUserData()
+        this.getUserData(),
+        this.getWardrobeItems()
       ]);
       
       // Store in cache
@@ -84,6 +87,7 @@ class SupabaseClient {
         fitnessProfile,
         wellnessProfile,
         userData,
+        wardrobeItems,
         lastPrefetch: Date.now()
       };
       
@@ -91,6 +95,7 @@ class SupabaseClient {
       console.log(`[SupabaseClient] Prefetch completed in ${duration}ms`);
       console.log(`[SupabaseClient] - Fitness plans: ${fitnessPlans?.length || 0}`);
       console.log(`[SupabaseClient] - Wellness plans: ${wellnessPlans?.length || 0}`);
+      console.log(`[SupabaseClient] - Wardrobe items: ${wardrobeItems?.length || 0}`);
       console.log(`[SupabaseClient] - User: ${userData?.name || 'N/A'}`);
       
       return this.cache;
@@ -114,6 +119,14 @@ class SupabaseClient {
    */
   getCachedWellnessPlans() {
     return this.cache.wellnessPlans || [];
+  }
+
+  /**
+   * Get cached wardrobe items (no fetch)
+   * @returns {Array} Cached wardrobe items
+   */
+  getCachedWardrobeItems() {
+    return this.cache.wardrobeItems || [];
   }
 
   /**
@@ -237,6 +250,33 @@ class SupabaseClient {
   }
 
   /**
+   * Fetch wardrobe items for the user
+   * @returns {Promise<Array>} Array of wardrobe items with tags
+   */
+  async getWardrobeItems() {
+    try {
+      console.log(`[SupabaseClient] Fetching wardrobe items for user: ${this.userId}`);
+      const url = `${this.baseUrl}/rest/v1/wardrobe_items?user_id=eq.${this.userId}&select=*`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.headers
+      });
+
+      if (!response.ok) {
+        console.error(`[SupabaseClient] Failed to fetch wardrobe items: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to fetch wardrobe items: ${response.statusText}`);
+      }
+
+      const items = await response.json();
+      console.log(`[SupabaseClient] Successfully fetched ${items.length} wardrobe items`);
+      return items;
+    } catch (error) {
+      console.error('[SupabaseClient] Error fetching wardrobe items:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Fetch fitness progress for a specific plan
    * @param {string} planId - The plan ID
    * @returns {Promise<Array>} Array of completed workouts
@@ -281,6 +321,52 @@ class SupabaseClient {
       return Array.from(completedDays);
     } catch (error) {
       console.error('Error getting completed days:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch wellness progress for a specific plan
+   * @param {string} planId - The plan ID
+   * @returns {Promise<Array>} Array of completed wellness sessions
+   */
+  async getWellnessProgress(planId) {
+    try {
+      // Note: wellness_progress table doesn't have user_id column, only plan_id
+      const url = `${this.baseUrl}/rest/v1/wellness_progress?plan_id=eq.${planId}&select=*&order=week_number.asc,day_number.asc`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.headers
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch wellness progress: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching wellness progress:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get completed wellness days for a plan
+   * @param {string} planId - The plan ID
+   * @returns {Promise<Array>} Array of {week, day} objects
+   */
+  async getCompletedWellnessDays(planId) {
+    try {
+      const progress = await this.getWellnessProgress(planId);
+      
+      return progress
+        .filter(record => record.completed && record.week_number && record.day_number)
+        .map(record => ({
+          week: record.week_number,
+          day: record.day_number
+        }));
+    } catch (error) {
+      console.error('Error getting completed wellness days:', error);
       return [];
     }
   }

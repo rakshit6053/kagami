@@ -20,6 +20,7 @@ const { Buffer } = require('buffer')
 const Speaker = require('speaker-arm64')
 const { WellnessAgent } = require('./lib/wellness')
 const { FitnessAgent } = require('./lib/fitness')
+const { FashionAgent, initializeSupabaseClient: initFashionClient } = require('./lib/fashion')
 
 const INPUT_SAMPLE_RATE = 44100  // Standard CD quality
 const OUTPUT_SAMPLE_RATE = 24000 // Gemini outputs at 24kHz
@@ -59,6 +60,7 @@ module.exports = NodeHelper.create({
     userLocation: null,
     wellness: null,
     fitness: null,
+    fashion: null,
     meditationMode: false,
     currentMeditationPlan: null,
     currentMeditationStep: 0,
@@ -87,14 +89,25 @@ module.exports = NodeHelper.create({
     async initializeSupabaseData() {
         try {
             const { SupabaseClient } = require('./lib/supabaseClient');
-            const { initializeSupabaseClient } = require('./lib/fitnessPlans');
+            const { initializeSupabaseClient: initFitnessClient } = require('./lib/fitnessPlans');
+            const { initializeSupabaseClient: initWellnessClient } = require('./lib/meditationPlan');
+            const { initializeSupabaseClient: initWardrobeClient } = require('./lib/wardrobeData');
             
             // Create client and prefetch data
             this.supabaseClient = new SupabaseClient();
             await this.supabaseClient.prefetchAllData();
             
             // Initialize fitness plans module with the client
-            initializeSupabaseClient(this.supabaseClient);
+            initFitnessClient(this.supabaseClient);
+            
+            // Initialize wellness/meditation plans module with the client
+            initWellnessClient(this.supabaseClient);
+            
+            // Initialize wardrobe data module with the client
+            initWardrobeClient(this.supabaseClient);
+            
+            // Initialize fashion agent module with the client
+            initFashionClient(this.supabaseClient);
             
             this.supabaseDataReady = true;
             this.log('Supabase data prefetched and ready!');
@@ -159,12 +172,7 @@ module.exports = NodeHelper.create({
             this.fitnessMode = true;
             this.selectedPlanId = planId;
             
-            // Disable muting and ensure continuous recording
-            this.isMuted = false;
-            
-            // Notify frontend that we're in open mic mode during fitness
-            this.sendToFrontend("RECORDING_STARTED");
-            
+            // Stay in hold-to-talk mode - user will press and hold to speak
             this.log(`Entering fitness mode: ${workout.name} with ${workout.totalExercises} exercises`);
             this.sendToFrontend("FITNESS_MODE_STARTED", {
                 target: workout.target,
@@ -177,13 +185,58 @@ module.exports = NodeHelper.create({
             });
             
             // Send fitness context immediately to AI
-            setTimeout(() => {
-                this.sendFitnessContextToAI();
-            }, 1000); // Wait for recording to be fully active
+            this.sendFitnessContextToAI();
             
         } catch (error) {
             this.error("Error starting workout from plan:", error);
             this.sendToFrontend("HELPER_ERROR", { error: `Failed to start workout: ${error.message}` });
+        }
+    },
+
+    // Start meditation from selected plan (NEW WELLNESS WORKFLOW)
+    async startMeditationFromPlan(planId) {
+        const { getNextIncompleteSession, buildSessionFromPlanDay } = require('./lib/meditationPlan');
+        
+        try {
+            // Get the next incomplete session
+            const nextSession = await getNextIncompleteSession(planId);
+            
+            if (!nextSession) {
+                this.log(`All sessions completed for plan ${planId}`);
+                // AI should announce completion through natural response
+                return;
+            }
+            
+            this.log(`Found incomplete session: Week ${nextSession.weekNumber}, Day ${nextSession.dayNumber} - ${nextSession.focus}`);
+            
+            // Build the full session details
+            const session = await buildSessionFromPlanDay(
+                nextSession.planId,
+                nextSession.weekNumber,
+                nextSession.dayNumber
+            );
+            
+            this.currentMeditationPlan = session;
+            this.currentMeditationStep = 0;
+            this.meditationMode = true;
+            this.selectedWellnessPlanId = planId;
+            
+            // Stay in hold-to-talk mode - user will press and hold to speak
+            this.log(`Entering meditation mode: ${session.planName} with ${session.totalSteps} steps`);
+            this.sendToFrontend("MEDITATION_MODE_STARTED", {
+                planName: session.planName,
+                totalSteps: session.totalSteps,
+                weekNumber: session.weekNumber,
+                dayNumber: session.dayNumber,
+                focus: session.focus
+            });
+            
+            // Send meditation context immediately to AI
+            this.sendMeditationContextToAI();
+            
+        } catch (error) {
+            this.error("Error starting meditation from plan:", error);
+            this.sendToFrontend("HELPER_ERROR", { error: `Failed to start meditation: ${error.message}` });
         }
     },
 
@@ -233,8 +286,15 @@ module.exports = NodeHelper.create({
         }
 
         const firstStep = this.currentMeditationPlan.steps[0];
+        const session = this.currentMeditationPlan;
+        
+        const contextText = `[SPEAK TO USER]: "Great! Let's begin your ${session.planName} session. This is Week ${session.weekNumber}, Day ${session.dayNumber} focusing on ${session.focus}. We have ${session.totalSteps} steps today. Let me guide you through them one by one.
 
-        const contextText = `${firstStep.instruction}`;
+First step: ${firstStep.instruction}
+
+Let me know when you're ready to continue by saying 'next' or 'continue'."
+
+[INSTRUCTION]: You are now in MEDITATION MODE. After speaking the above, stop talking and wait silently for the user to say "next", "continue", "okay", or similar. When they do, call the next_meditation_step function to move to the next step. Do NOT read ahead or list all steps.`;
 
         try {
             this.log("Sending meditation context as text to AI");
@@ -256,12 +316,18 @@ module.exports = NodeHelper.create({
         }
 
         const currentStep = this.currentMeditationPlan.steps[this.currentMeditationStep];
-        const stepText = `${currentStep.instruction}`;
+        const isLastStep = this.currentMeditationStep >= this.currentMeditationPlan.totalSteps - 1;
+        
+        const contextText = `[SPEAK TO USER]: "Next step: ${currentStep.instruction}
+
+${isLastStep ? "This is the final step. " : ""}Let me know when you're ready to continue."
+
+[INSTRUCTION]: Stop talking and wait for the user to say "next" or "continue". ${isLastStep ? "After they finish, the meditation will be complete." : "Then call next_meditation_step to continue."}`;
 
         try {
             this.log(`Sending next step ${this.currentMeditationStep + 1} context to AI`);
             const textPayload = {
-                text: stepText
+                text: contextText
             };
             await this.liveSession.sendRealtimeInput(textPayload);
             this.log("Next step context sent successfully");
@@ -354,8 +420,14 @@ You can help with:
 - Calendar-related info (e.g., "What day is it?")
 - Motivational quotes, jokes, or fun facts
 - Casual small talk or greetings
-- Guided meditation sessions: When a user asks to meditate or start a meditation session, ask for duration if not provided, then enter meditation mode where you read the meditation plan step by step and wait for user confirmation to proceed
+- Guided meditation/wellness sessions: When a user asks to meditate or start a meditation/wellness session, CALL list_wellness_plans to fetch their plans from the database. You will receive ONLY the plans that exist for this specific user - DO NOT mention any other plans or make up plans. Present ONLY the plans from the retrieved list to the user and ask which one they want to do. After they choose, extract the Plan ID from the list and CALL select_wellness_plan with the correct UUID Plan ID (never read UUIDs out loud - only use them for function calls)
 - Fitness workout sessions: When a user asks to start a workout or exercise, CALL list_fitness_plans to fetch their plans from the database. You will receive ONLY the plans that exist for this specific user - DO NOT mention any other plans or make up plans. Present ONLY the plans from the retrieved list to the user and ask which one they want to do. After they choose, extract the Plan ID from the list and CALL select_fitness_plan with the correct UUID Plan ID (never read UUIDs out loud - only use them for function calls)
+- Fashion & Outfit Suggestions: When a user asks for outfit suggestions, advice on what to wear, or fashion help, you should engage in a conversational manner. Ask relevant questions to understand their needs:
+  * "What's the weather like today?" or "Are you dressing for warm or cold weather?"
+  * "What's the occasion?" (e.g., work, casual outing, formal event, workout)
+  * "What style are you going for?" (e.g., professional, casual, sporty, elegant)
+  * "Any color preferences for today?"
+  Based on the user's wardrobe inventory (which you have access to in your context), suggest complete outfits that combine items they actually own. Explain why certain pieces work well together considering the weather, occasion, and their preferences. ONLY suggest items from the user's actual wardrobe - never make up or suggest items they don't have.
 - Emergency exit: If user says "switch to push to talk", "exit to push to talk", or "peaches" at ANY time, immediately call switch_to_push_to_talk function
 - Open mic mode: If user says "switch to open mic", "enable open mic", "continuous listening" while in push-to-talk mode, call switch_to_open_mic function
 
@@ -402,6 +474,19 @@ Your default language is English, but you should respond in the input audio lang
         if (this.availablePlans && this.availablePlans.length > 0 && !this.fitnessMode) {
             const plansContext = this.buildAvailablePlansContext();
             basePrompt += `\n\n${plansContext}`;
+        }
+
+        // ALWAYS add wardrobe context for fashion suggestions
+        if (this.supabaseDataReady && this.supabaseClient) {
+            const wardrobeContext = this.buildWardrobeContext();
+            if (wardrobeContext && wardrobeContext.length > 0) {
+                this.log(`[FASHION] Adding wardrobe context to system prompt (${wardrobeContext.length} characters)`);
+                basePrompt += `\n\n${wardrobeContext}`;
+            } else {
+                this.warn("[FASHION] Wardrobe context is empty - fashion agent may suggest incorrect items!");
+            }
+        } else {
+            this.warn(`[FASHION] Cannot add wardrobe context - supabaseDataReady: ${this.supabaseDataReady}, supabaseClient: ${!!this.supabaseClient}`);
         }
 
         return basePrompt;
@@ -500,6 +585,114 @@ IMPORTANT: You MUST call the select_fitness_plan function with the correct plan 
 After calling select_fitness_plan, the system will automatically find the next incomplete workout from that plan and start it. You don't need to ask for specific exercises or days.`;
     },
 
+    // Build wardrobe context for fashion suggestions
+    buildWardrobeContext() {
+        if (!this.fashion) {
+            this.error("Fashion agent not initialized - cannot build wardrobe context");
+            return "";
+        }
+        
+        if (!this.supabaseDataReady) {
+            this.warn("Supabase data not ready - cannot build wardrobe context");
+            return "";
+        }
+        
+        if (!this.supabaseClient) {
+            this.error("Supabase client not initialized - cannot build wardrobe context");
+            return "";
+        }
+        
+        try {
+            // Fetch wardrobe items directly from Supabase cache (just like fitness/wellness plans)
+            const wardrobeItems = this.supabaseClient.getCachedWardrobeItems();
+            
+            this.log(`Fetched wardrobe items from Supabase cache: ${wardrobeItems ? wardrobeItems.length : 0} items`);
+            
+            if (!wardrobeItems || wardrobeItems.length === 0) {
+                this.warn("No wardrobe items found in Supabase cache for user");
+                this.warn("Check that wardrobe_items table has data for the user");
+                return "";
+            }
+            
+            this.log(`Building wardrobe context with ${wardrobeItems.length} items from Supabase`);
+            
+            // Log each wardrobe item for debugging
+            this.log('[FASHION] Wardrobe items from Supabase:');
+            wardrobeItems.forEach((item, idx) => {
+                this.log(`  ${idx + 1}. ${item.item_type} - ${item.color || 'no color'} - ${item.subcategory || 'no subcategory'}`);
+            });
+            
+            // Pass the wardrobe items to the fashion agent to build the context
+            const wardrobeContext = this.fashion.getWardrobeContextFromCache(wardrobeItems);
+            
+            this.log(`[FASHION] Wardrobe context generated successfully (${wardrobeContext.length} characters)`);
+            this.log(`[FASHION] First 200 chars of context: ${wardrobeContext.substring(0, 200)}...`);
+            
+            return `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FASHION ASSISTANT - USER'S WARDROBE INVENTORY FROM SUPABASE DATABASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ CRITICAL: This is the COMPLETE and ONLY list of clothing items the user owns.
+⚠️ DO NOT suggest ANY items not explicitly listed below.
+⚠️ If you cannot answer using ONLY these items, say so honestly.
+
+${wardrobeContext}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MANDATORY FASHION SUGGESTION RULES - READ CAREFULLY:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⛔ ABSOLUTE PROHIBITIONS (NEVER DO THESE):
+   1. NEVER suggest "blue jeans" if they're not listed above
+   2. NEVER suggest "t-shirt" unless you see it listed above  
+   3. NEVER suggest "dress shirt" or any item not in the inventory
+   4. NEVER make up colors, fabrics, or item types
+   5. NEVER use generic placeholders like "a nice shirt" or "casual pants"
+   6. NEVER assume the user has common items like "white t-shirt" or "blue jeans"
+   7. If asked "what pants do I have?", list ONLY the pants shown above - nothing else!
+
+✅ WHAT YOU MUST DO:
+   1. When asked what items they have, list ONLY items from the wardrobe above
+   2. Use the EXACT descriptions from the wardrobe inventory
+   3. If you don't see an item type (e.g., "dress shirt"), say "I don't see any dress shirts in your wardrobe"
+   4. Be conversational but FACTUAL - never invent items
+   5. If the user's wardrobe doesn't have what they need, acknowledge it honestly
+
+📋 WHEN ANSWERING "WHAT DO I HAVE?" QUESTIONS:
+   - "What pants do I have?" → List ONLY the pants from the wardrobe inventory above
+   - "What shoes do I have?" → List ONLY the shoes from the wardrobe inventory above
+   - "Do I have a white shirt?" → Check the inventory and answer ONLY based on what's listed
+
+💬 CONVERSATIONAL APPROACH:
+   1. Ask about weather ("Are you dressing for warm or cold weather?")
+   2. Ask about occasion ("What's the occasion - work, casual, or something special?")
+   3. Ask about style ("What style are you going for today?")
+   4. THEN suggest outfits using ONLY items from the wardrobe above
+
+🎯 EXAMPLE CORRECT RESPONSES:
+
+Good: "Looking at your wardrobe, you have black pants and white cargo pants. Which would you prefer for today?"
+
+Good: "I don't see any blue jeans in your wardrobe, but you have white cargo pants and black pants. Would either of those work?"
+
+Bad: "You could wear blue jeans..." (WRONG - not in wardrobe!)
+
+Bad: "Pair it with a white t-shirt" (WRONG - unless white t-shirt is listed above!)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+REMEMBER: The wardrobe inventory above is fetched from the Supabase database.
+It is the COMPLETE and AUTHORITATIVE list. Trust it. Use ONLY what's there.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+        } catch (error) {
+            this.error("Error building wardrobe context:", error);
+            return "";
+        }
+    },
+
     // Handle meditation progression 
     async progressMeditation() {
         if (!this.meditationMode || !this.currentMeditationPlan) return false;
@@ -541,24 +734,15 @@ After calling select_fitness_plan, the system will automatically find the next i
         this.meditationMode = false;
         this.currentMeditationPlan = null;
         this.currentMeditationStep = 0;
+        this.availableWellnessPlans = []; // Clear wellness plans list
+        this.selectedWellnessPlanId = null; // Clear selected wellness plan
         
-        // Restore hold-to-talk mode by stopping recording (but keeping connection open)
-        if (this.isRecording) {
-            this.log("Ending meditation: stopping recording to restore hold-to-talk mode");
-            this.stopRecording(false); // Stop recording but don't close connection
-            this.sendToFrontend("RECORDING_STOPPED");
-            this.log("Recording stopped - back to hold-to-talk mode, connection remains open");
-        } else {
-            this.log("Recording not active - ensuring connection is ready for hold-to-talk");
-            this.sendToFrontend("RECORDING_STOPPED"); // Ensure frontend knows we're in stopped state
-        }
-        
-        // Ensure we can start new meditation sessions
+        // Already in hold-to-talk mode, just ensure frontend knows session ended
         this.log("Meditation session cleanup complete - ready for new sessions");
         
         this.sendToFrontend("MEDITATION_MODE_ENDED", { userStopped });
         
-        this.log("Meditation session ended - returned to hold-to-talk mode");
+        this.log("Meditation session ended - ready for hold-to-talk");
     },
 
     // End fitness session
@@ -572,23 +756,12 @@ After calling select_fitness_plan, the system will automatically find the next i
         this.availablePlans = []; // Clear plans list
         this.selectedPlanId = null; // Clear selected plan
         
-        // Restore hold-to-talk mode by stopping recording (but keeping connection open)
-        if (this.isRecording) {
-            this.log("Ending fitness: stopping recording to restore hold-to-talk mode");
-            this.stopRecording(false); // Stop recording but don't close connection
-            this.sendToFrontend("RECORDING_STOPPED");
-            this.log("Recording stopped - back to hold-to-talk mode, connection remains open");
-        } else {
-            this.log("Recording not active - ensuring connection is ready for hold-to-talk");
-            this.sendToFrontend("RECORDING_STOPPED"); // Ensure frontend knows we're in stopped state
-        }
-        
-        // Ensure we can start new fitness sessions
+        // Already in hold-to-talk mode, just ensure frontend knows session ended
         this.log("Fitness session cleanup complete - ready for new sessions");
         
         this.sendToFrontend("FITNESS_MODE_ENDED", { userStopped });
         
-        this.log("Fitness session ended - returned to hold-to-talk mode");
+        this.log("Fitness session ended - ready for hold-to-talk");
     },
 
     // AI speech helper using Gemini TTS API
@@ -710,6 +883,15 @@ After calling select_fitness_plan, the system will automatically find the next i
             
             // Initialize fitness agent
             this.fitness = new FitnessAgent({
+                notifyFront: (notification, payload) => this.sendToFrontend(notification, payload),
+                speak: async (text) => await this.speak(text),
+                log: (...args) => this.log(...args),
+                warn: (...args) => this.warn(...args),
+                error: (...args) => this.error(...args),
+            })
+            
+            // Initialize fashion agent
+            this.fashion = new FashionAgent({
                 notifyFront: (notification, payload) => this.sendToFrontend(notification, payload),
                 speak: async (text) => await this.speak(text),
                 log: (...args) => this.log(...args),
@@ -851,17 +1033,26 @@ After calling select_fitness_plan, the system will automatically find the next i
                     }, {
                         functionDeclarations: [
                             {
-                                name: "start_meditation",
-                                description: "Start a guided meditation session. If durationSeconds is missing, ask the user for duration.",
+                                name: "list_wellness_plans",
+                                description: "List all available wellness/meditation plans for the user to choose from. Call this when user wants to start a meditation or wellness session.",
+                                parameters: {
+                                    type: Type.OBJECT,
+                                    properties: {},
+                                    required: []
+                                }
+                            },
+                            {
+                                name: "select_wellness_plan",
+                                description: "Select a specific wellness/meditation plan and start the next incomplete session. Call after user chooses a plan from the list. IMPORTANT: planId must be the UUID from the plan list, NOT the plan name.",
                                 parameters: {
                                     type: Type.OBJECT,
                                     properties: { 
-                                        durationSeconds: { 
-                                            type: Type.NUMBER, 
-                                            description: "Total meditation duration in seconds"
-                                        } 
+                                        planId: { 
+                                            type: Type.STRING, 
+                                            description: "The UUID of the selected wellness plan"
+                                        }
                                     },
-                                    required: []
+                                    required: ["planId"]
                                 }
                             },
                             {
@@ -1114,8 +1305,8 @@ After calling select_fitness_plan, the system will automatically find the next i
                     return;
                 }
                 
-                // If recording is active but muted, just unmute (unless in meditation mode)
-                if (this.isRecording && this.isMuted && !this.meditationMode) {
+                // If recording is active but muted, just unmute
+                if (this.isRecording && this.isMuted) {
                     this.log("Microphone already active but muted. Unmuting...");
                     this.isMuted = false;
                     this.sendToFrontend("RECORDING_STARTED");
@@ -1136,10 +1327,7 @@ After calling select_fitness_plan, the system will automatically find the next i
                 break;
             case "MUTE_MICROPHONE":
                 this.log('>>> socketNotificationReceived: Handling MUTE_MICROPHONE');
-                if (this.meditationMode || this.fitnessMode) {
-                    this.log("Cannot mute microphone - in meditation or fitness mode");
-                    this.sendToFrontend("HELPER_ERROR", { error: "Cannot mute during meditation or fitness session" });
-                } else if (this.isRecording) {
+                if (this.isRecording) {
                     this.log("Muting microphone by setting isMuted=true. User audio will stop sending. Assistant playback should continue.");
                     this.isMuted = true; // This stops new audio from being sent to Gemini
                     this.sendToFrontend("MICROPHONE_MUTED"); // UI update
@@ -1503,27 +1691,68 @@ After calling select_fitness_plan, the system will automatically find the next i
                      this.warn("generate_image call missing 'image_prompt' argument")
                 }
                 break
-            case "start_meditation":
+            case "list_wellness_plans":
                 {
-                    const total = Number(args.durationSeconds);
-                    if (!total || total <= 0) {
-                        this.log("Meditation requested without duration, asking user for duration");
-                        // Don't call speak here - let Gemini handle asking naturally
-                        return; // Gemini will ask for duration through its normal response
-                    }
-                    
-                    // Check if meditation is already active
-                    if (this.meditationMode) {
-                        this.log("Meditation session already active, ignoring duplicate request");
-                        return;
-                    }
-                    
-                    this.log(`Starting interactive meditation session for ${total} seconds (${Math.round(total/60)} minutes)`);
+                    this.log("Listing wellness plans for user");
                     try {
-                        await this.startInteractiveMeditation(total);
+                        const { getAllWellnessPlans } = require('./lib/meditationPlan');
+                        const plans = getAllWellnessPlans();
+                        
+                        if (!plans || plans.length === 0) {
+                            this.log("No wellness plans found");
+                            return;
+                        }
+                        
+                        // Store plans for AI context
+                        this.availableWellnessPlans = plans;
+                        this.log(`Found ${plans.length} wellness plans in cache:`, plans.map(p => p.name).join(', '));
+                        
+                        // Send context to AI with the plans list including IDs
+                        if (this.liveSession && this.connectionOpen) {
+                            // User-friendly text to speak (numbered list format)
+                            const speakText = plans.map((p, i) => 
+                                `Option ${i + 1}: ${p.name}, focusing on ${Array.isArray(p.focus) ? p.focus.join(' and ') : p.focus}, a ${p.duration} program`
+                            ).join('. ');
+                            
+                            // Internal mapping for AI to use (not spoken)
+                            const planMapping = plans.map((p, i) => 
+                                `Option ${i + 1} -> Plan ID: ${p.id}`
+                            ).join('\n');
+                            
+                            const contextText = `CRITICAL INSTRUCTION: You have retrieved exactly ${plans.length} wellness plan(s) from the database for this user. DO NOT mention any other plans or make up additional plans.
+
+[SPEAK EXACTLY THIS TO USER]:
+"You have ${plans.length} wellness plan${plans.length > 1 ? 's' : ''} available. ${speakText}. Which one would you like to do today?"
+
+[INTERNAL PLAN ID MAPPING - DO NOT READ THESE UUIDs OUT LOUD]:
+${planMapping}
+
+[NEXT STEP]: Wait for the user to choose a plan by saying a number (1, 2, etc.) or the plan name. Then use the Plan ID from the mapping above to call select_wellness_plan. DO NOT read the UUID out loud - only use it for the function call.`;
+                            
+                            await this.liveSession.sendRealtimeInput({ text: contextText });
+                            this.log("Sent wellness plans context to AI");
+                        }
                     } catch (error) {
-                        this.error("Error starting meditation session:", error);
-                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to start meditation: ${error.message}` });
+                        this.error("Error listing wellness plans:", error);
+                        this.availableWellnessPlans = [];
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to list wellness plans: ${error.message}` });
+                    }
+                }
+                break;
+            case "select_wellness_plan":
+                {
+                    const { planId } = args;
+                    this.log(`Selecting wellness plan: ${planId}`);
+                    try {
+                        if (!planId) {
+                            this.log("No plan ID provided");
+                            return;
+                        }
+                        
+                        await this.startMeditationFromPlan(planId);
+                    } catch (error) {
+                        this.error("Error selecting wellness plan:", error);
+                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to select wellness plan: ${error.message}` });
                     }
                 }
                 break;

@@ -16,6 +16,17 @@ limitations under the License.
 
 const { SupabaseClient } = require('./supabaseClient');
 
+// Global Supabase client instance (set by node_helper)
+let supabaseClientInstance = null;
+
+/**
+ * Initialize the Supabase client instance
+ * @param {SupabaseClient} client - The Supabase client instance
+ */
+function initializeSupabaseClient(client) {
+  supabaseClientInstance = client;
+}
+
 // Cache for wellness plans
 let cachedWellnessPlans = null;
 let lastFetchTime = null;
@@ -160,4 +171,179 @@ function buildFallbackPlan(totalSeconds) {
   };
 }
 
-module.exports = { buildPlan };
+/**
+ * Get all available wellness plans from cache
+ * @returns {Array} Array of wellness plan summaries with id, name, focus, duration
+ */
+function getAllWellnessPlans() {
+  if (!supabaseClientInstance) {
+    console.error('[getAllWellnessPlans] Supabase client not initialized');
+    return [];
+  }
+
+  const plans = supabaseClientInstance.getCachedWellnessPlans();
+  
+  if (!plans || plans.length === 0) {
+    console.log('[getAllWellnessPlans] No wellness plans found in cache');
+    return [];
+  }
+
+  // Return simplified plan information for AI
+  return plans.map(plan => ({
+    id: plan.id,
+    name: plan.plan_name,
+    focus: plan.meditation_style || 'Mindfulness', // wellness_plans uses meditation_style, not focus_areas
+    duration: `${plan.duration_weeks || 1} week${plan.duration_weeks > 1 ? 's' : ''}`
+  }));
+}
+
+/**
+ * Get the next incomplete wellness session for a specific plan
+ * @param {string} planId - The wellness plan UUID
+ * @returns {Promise<Object|null>} Next incomplete session or null if all complete
+ */
+async function getNextIncompleteSession(planId) {
+  if (!supabaseClientInstance) {
+    console.error('[getNextIncompleteSession] Supabase client not initialized');
+    return null;
+  }
+
+  try {
+    const plans = supabaseClientInstance.getCachedWellnessPlans();
+    const plan = plans.find(p => p.id === planId);
+    
+    if (!plan) {
+      console.error(`[getNextIncompleteSession] Plan not found: ${planId}`);
+      return null;
+    }
+
+    // Get wellness progress for this plan
+    const progress = await supabaseClientInstance.getWellnessProgress(planId);
+    const completedDays = await supabaseClientInstance.getCompletedWellnessDays(planId);
+    
+    console.log(`[getNextIncompleteSession] Plan: ${plan.plan_name}, Completed days:`, completedDays);
+
+    const planData = plan.plan_data;
+    if (!planData.weeks || planData.weeks.length === 0) {
+      console.error(`[getNextIncompleteSession] No weeks found in plan data`);
+      return null;
+    }
+
+    // Iterate through weeks and days to find first incomplete
+    for (const week of planData.weeks) {
+      const weekNumber = week.week_number;
+      
+      if (!week.days || week.days.length === 0) continue;
+      
+      for (const day of week.days) {
+        const dayNumber = day.day_number;
+        
+        // Check if this day is completed
+        const isCompleted = completedDays.some(
+          cd => cd.week === weekNumber && cd.day === dayNumber
+        );
+        
+        if (!isCompleted) {
+          console.log(`[getNextIncompleteSession] Found incomplete session: Week ${weekNumber}, Day ${dayNumber}`);
+          return {
+            planId: plan.id,
+            planName: plan.plan_name,
+            weekNumber,
+            dayNumber,
+            focus: day.focus || week.focus || 'Mindfulness Practice',
+            totalDays: planData.weeks.reduce((sum, w) => sum + (w.days?.length || 0), 0)
+          };
+        }
+      }
+    }
+
+    console.log(`[getNextIncompleteSession] All sessions completed for plan ${planId}`);
+    return null; // All sessions completed
+  } catch (error) {
+    console.error('[getNextIncompleteSession] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * Build a meditation/wellness session from a specific plan day
+ * @param {string} planId - The wellness plan UUID
+ * @param {number} weekNumber - Week number (1-indexed)
+ * @param {number} dayNumber - Day number (1-indexed)
+ * @returns {Promise<Object>} Detailed session plan with steps
+ */
+async function buildSessionFromPlanDay(planId, weekNumber, dayNumber) {
+  if (!supabaseClientInstance) {
+    console.error('[buildSessionFromPlanDay] Supabase client not initialized');
+    throw new Error('Supabase client not initialized');
+  }
+
+  try {
+    const plans = supabaseClientInstance.getCachedWellnessPlans();
+    const plan = plans.find(p => p.id === planId);
+    
+    if (!plan) {
+      throw new Error(`Plan not found: ${planId}`);
+    }
+
+    const planData = plan.plan_data;
+    const week = planData.weeks[weekNumber - 1];
+    
+    if (!week) {
+      throw new Error(`Week ${weekNumber} not found in plan`);
+    }
+
+    const day = week.days[dayNumber - 1];
+    
+    if (!day) {
+      throw new Error(`Day ${dayNumber} not found in week ${weekNumber}`);
+    }
+
+    // Extract meditation/wellness tasks
+    const tasks = day.tasks || [];
+    const steps = [];
+    
+    for (const task of tasks) {
+      steps.push({
+        instruction: task.details || task.activity || 'Continue with your mindfulness practice.',
+        duration: task.duration_minutes || 2 // Default 2 minutes per step
+      });
+    }
+
+    // If no tasks, create a basic session
+    if (steps.length === 0) {
+      steps.push(
+        { instruction: 'Find a comfortable position and close your eyes.', duration: 1 },
+        { instruction: 'Take slow, deep breaths. Focus on the sensation of breathing.', duration: 2 },
+        { instruction: 'Notice any thoughts that arise, and gently let them pass.', duration: 2 },
+        { instruction: 'Bring your attention back to your breath whenever your mind wanders.', duration: 2 },
+        { instruction: 'Slowly open your eyes when you are ready.', duration: 1 }
+      );
+    }
+
+    return {
+      planId,
+      planName: plan.plan_name,
+      weekNumber,
+      dayNumber,
+      focus: day.focus || week.focus || 'Mindfulness Practice',
+      totalSteps: steps.length,
+      steps: steps.map((step, idx) => ({
+        stepNumber: idx + 1,
+        instruction: step.instruction,
+        duration: step.duration
+      }))
+    };
+  } catch (error) {
+    console.error('[buildSessionFromPlanDay] Error:', error);
+    throw error;
+  }
+}
+
+module.exports = { 
+  buildPlan, 
+  initializeSupabaseClient,
+  getAllWellnessPlans,
+  getNextIncompleteSession,
+  buildSessionFromPlanDay
+};
