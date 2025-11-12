@@ -2,6 +2,8 @@
 	"extends": ["stylelint-config-standard"],
 	"plugins": ["stylelint-prettier"],
 	"rules": {
-		"prettier/prettier": true
+		"prettier/prettier": true,
+		"selector-class-pattern": "^([a-z][a-z0-9]*)(-[a-z0-9]+)*$|^MMM-[A-Za-z0-9]+$",
+		"no-descending-specificity": null
 	}
 }

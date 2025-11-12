@@ -1,0 +1,571 @@
+/*
+ * MMM-OnSpotify | MIT license
+ * By Fabrizio <3 (Fabrizz) | https://github.com/Fabrizz/MMM-OnSpotify
+ */
+
+ /* Use this CSS stylesheet as a template for what you want to override */
+ /* Use the same units as described here. Do not change this file */
+ /* custom.css also handles MM2 overrides (if enabled) */
+
+:root {
+    /* Colors extracted from the cover art */
+    --ONSP-VIBRANT-VIBRANT: #b9b9b9;
+    --ONSP-VIBRANT-DARKVIBRANT: #b9b9b9;
+    --ONSP-VIBRANT-LIGHTVIBRANT: #b9b9b9;
+    --ONSP-VIBRANT-MUTED: #b9b9b9;
+    --ONSP-VIBRANT-DARKMUTED: #b9b9b9;
+    --ONSP-VIBRANT-LIGHTMUTED: #d0d0d0;
+
+    --ONSP-VIBRANT-DOMINANTBRIGHT: #f0f0f0;
+    --ONSP-VIBRANT-DOMINANTDARK: #212121;
+    --ONSP-VIBRANT-DOMINANTEMPHASIS: #ffffff;
+    --ONSP-VIBRANT-TRANSITION: var(--ONSP-INTERNAL-PLAYER-TRANSITION-TIME);
+
+    /* Base colors */
+    --ONSP-INTERNAL-COLOR-BRIGHT: #FFF; /* var(--color-text-bright); */
+    --ONSP-INTERNAL-COLOR-MUTED: #b9b9b9; /* var(--color-text); */
+    --ONSP-BRANDCOLOR-SPOTIFY: #1DB954;
+
+    /* User defaults */
+    --ONSP-INTERNAL-USER-IMAGE-BASE: 2.8em;
+    --ONSP-INTERNAL-USER-IMAGE-EMPTY: 1em;
+    --ONSP-INTERNAL-USER-IMAGE-SYNC-HEIGHT: var(--ONSP-INTERNAL-USER-IMAGE-BASE-SIZE);
+    --ONSP-INTERNAL-USER-IMAGE-SYNC-WIDTH: var(--ONSP-INTERNAL-USER-IMAGE-BASE-SIZE);
+
+    /* Defaults for calculations */
+    --ONSP-INTERNAL-PLAYER-PROGRESS-ANIMATION: cubic-bezier(0.35, 0.11, 0.25, 1);
+    --ONSP-INTERNAL-PLAYER-UPDATE-TIME: 1000ms; /* (!) This gets overwritten by your selection in the fetching interval */
+    --ONSP-INTERNAL-PLAYER-TRANSITION-TIME: 1500ms; /* (!) Respect "ms" unit if using custom.css */
+    --ONSP-INTERNAL-PLAYER-TEXT-TIME: 480ms; /* (!) Respect "ms" unit if using custom.css */
+
+    --ONSP-INTERNAL-LOWPOWER-FADEIN: none;
+    --ONSP-INTERNAL-LOWPOWER-TEXT: none; /* Text animations are applied using JS as they are not static */
+    --ONSP-INTERNAL-LOWPOWER-TARGET: none;
+    --ONSP-INTERNAL-LOWPOWER-COVER: none;
+    --ONSP-INTERNAL-LOWPOWER-TRANSITIONS: none; /* background-color */
+
+    --ONSP-INTERNAL-COVER-FADE-TIME: 2500ms;
+    --ONSP-INTERNAL-COVER-FADE-EASING: cubic-bezier(.23,1.12,.95,.9);
+
+    --ONSP-INTERNAL-PLAYER-FONT-BASE: inherit;
+    --ONSP-INTERNAL-PLAYER-SIZE-WIDTH: 15em;
+    --ONSP-INTERNAL-PLAYER-PADDING-INFO: 0.28em;
+    --ONSP-INTERNAL-PLAYER-MEDIA-CORNERS: 0.60em;
+    --ONSP-INTERNAL-PLAYER-PROGRESS-CORNERS: 1em;
+    --ONSP-INTERNAL-PLAYER-GAP: 0.5em;
+
+    --ONSP-INTERNAL-COVER-SCALABLE-MAX-HEIGHT: 550px;
+    
+    --ONSP-INTERNAL-PLAYER-COLOR-PROGRESS: #FFF;
+    --ONSP-INTERNAL-PLAYER-COLOR-PROGRESS-BG: #ffffff26;
+    --ONSP-INTERNAL-PLAYER-COLOR-TITLE: #FFF;
+
+    --ONSP-INTERNAL-PLAYER-CODE-COLOR: #222;
+    --ONSP-INTERNAL-PLAYER-CODE-BARS: #ffffff;
+    --ONSP-INTERNAL-PLAYER-CODE-MARGIN: calc(0px - var(--ONSP-INTERNAL-PLAYER-SIZE-WIDTH) - var(--ONSP-INTERNAL-PLAYER-GAP) + 0.1em);
+    --ONSP-INTERNAL-PLAYER-CODE-PADDING: calc(var(--ONSP-INTERNAL-PLAYER-SIZE-WIDTH) - 0.1em);
+
+    --ONSP-INTERNAL-SCROLLER-SIZE-TITLE: 0px;
+    --ONSP-INTERNAL-SCROLLER-SIZE-SUBTITLE: 0px;
+    --ONSP-INTERNAL-SCROLLER-TIMING-SUM-TITLE: 0ms;
+    --ONSP-INTERNAL-SCROLLER-TIMING-SUM-SUBTITLE: 0ms;
+}
+
+/* DYNAMIC BACKGROUND */
+.ONSP-Base .background { animation: var(--ONSP-INTERNAL-LOWPOWER-FADEIN) var(--ONSP-INTERNAL-PLAYER-TRANSITION-TIME) }
+.ONSP-Base .background .backgroundBox { position: absolute; transition: var(--ONSP-INTERNAL-LOWPOWER-TRANSITIONS) var(--ONSP-INTERNAL-PLAYER-TRANSITION-TIME) }
+
+/* >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> FIXED SIZES CSS - CHANGE IF NEEDED < */
+.ONSP-Base .background .backgroundBoxAAA {
+    top: 4px;
+    height: 280px;
+    left: -40px;
+    width: 180px;
+    background-color: var(--ONSP-VIBRANT-VIBRANT);
+    opacity: 0.44;
+    filter: blur(68px);
+}
+.ONSP-Base .background .backgroundBoxBBB {
+    top: 16px;
+    height: 180px;
+    width: 253px;
+    right: -35px;
+    background-color: var(--ONSP-VIBRANT-LIGHTVIBRANT);
+    opacity: 0.46;
+    filter: blur(102px);
+}
+.ONSP-Base .background .backgroundBoxCCC {
+    bottom: 49px;
+    right: -45px;
+    height: 108px;
+    width: 180px;
+    background-color: var(--ONSP-VIBRANT-DARKMUTED);
+    opacity: 0.38;
+    filter: blur(58px);
+}
+.ONSP-Base .background .backgroundBoxDDD {
+    top: 171px;
+    right: -51px;
+    height: 203px;
+    width: 95px;
+    background-color: var(--ONSP-VIBRANT-MUTED);
+    opacity: 0.4;
+    filter: blur(62px);
+}
+.ONSP-Base .background .backgroundBoxEEE {
+    left: -31px;
+    height: 310px;
+    bottom: -35px;
+    width: 228px;
+    background-color: var(--ONSP-VIBRANT-LIGHTMUTED);
+    opacity: 0.42;
+    filter: blur(82px);
+}
+.ONSP-Base .background .backgroundBoxFFF { 
+    bottom: -41px;
+    right: -47px;
+    width: 244px;
+    height: 106px;
+    background-color: var(--ONSP-VIBRANT-DARKVIBRANT);
+    opacity: 0.36;
+    filter: blur(76px);
+}
+/* BACKGROUND FRAME OVERRIDES [If using custom background fixed sizes, make sure to have <blurLessInFrameSide> set to false] */
+/* Bottom */
+.ONSP-Base .overrideBottom .backgroundBoxEEE,
+.ONSP-Base .overrideAll .backgroundBoxEEE {
+    height: 236px;
+    bottom: 5px;
+    filter: blur(42px);
+}
+.ONSP-Base .overrideBottom .backgroundBoxFFF,
+.ONSP-Base .overrideAll .backgroundBoxFFF { 
+    bottom: 5px;
+    height: 148px;
+    filter: blur(42px);
+    opacity: 0.3;
+}
+/* Right */
+.ONSP-Base .overrideRight .backgroundBoxFFF,
+.ONSP-Base .overrideAll .backgroundBoxFFF { 
+    right: 5px;
+    width: 180px;
+    filter: blur(42px);
+    opacity: 0.3;
+}
+.ONSP-Base .overrideRight .backgroundBoxDDD,
+.ONSP-Base .overrideAll .backgroundBoxDDD { 
+    right: 5px;
+    width: 80px;
+    height: 186px;
+    filter: blur(42px);
+}
+.ONSP-Base .overrideRight .backgroundBoxBBB,
+.ONSP-Base .overrideAll .backgroundBoxBBB { 
+    width: 172px;
+    right: 5px;
+    height: 234px;
+    filter: blur(42px);
+}
+.ONSP-Base .overrideRight .backgroundBoxCCC,
+.ONSP-Base .overrideAll .backgroundBoxCCC {
+    right: 5px;
+    width: 61px;
+    filter: blur(42px);
+}
+/* Left */
+.ONSP-Base .overrideLeft .backgroundBoxEEE,
+.ONSP-Base .overrideAll .backgroundBoxEEE {
+    width: 170px;
+    left: 5px;
+    filter: blur(42px);
+}
+.ONSP-Base .overrideLeft .backgroundBoxAAA,
+.ONSP-Base .overrideAll .backgroundBoxAAA {
+    left: 5px;
+    width: 160px;
+    filter: blur(42px);
+    opacity: 0.4;
+}
+/* >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> END < */
+
+/* MODULE HL */
+.MMM-OnSpotify.module {
+    display: flex;
+    justify-content: center;
+    font-size: var(--ONSP-INTERNAL-PLAYER-FONT-BASE);
+}
+
+/* PLAYER */
+.ONSP-Base .nowplaying{
+    max-width: var(--ONSP-INTERNAL-PLAYER-SIZE-WIDTH);
+    position: relative;
+}
+.ONSP-Base .player {
+    display: flex;
+    position: relative;
+    flex-flow: column nowrap;
+    width: var(--ONSP-INTERNAL-PLAYER-SIZE-WIDTH);
+    animation: var(--ONSP-INTERNAL-LOWPOWER-FADEIN) var(--ONSP-INTERNAL-PLAYER-TRANSITION-TIME);
+    text-align: left;
+    gap: var(--ONSP-INTERNAL-PLAYER-GAP);
+    z-index: 1;
+}
+.ONSP-Base .player .header {
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: stretch;
+    gap: 0.5em;
+    padding-bottom: 0.04em;
+}
+.ONSP-Base .player .header .visual {
+    background-color: var(--ONSP-INTERNAL-PLAYER-COLOR-TITLE);
+    width: 0.08em;
+    border-radius: 1em;
+}
+.ONSP-Base .player .header .names {
+    display: flex;
+    flex-flow: column nowrap;
+    overflow: hidden;
+    white-space: nowrap;
+    max-width: 100%;
+    flex: 1;
+    align-items: flex-start;
+}
+.ONSP-Base .player .header .names .title {
+    display: flex;
+    align-items: center;
+    font-size: 1.25em;
+    font-weight: bold;
+    color: var(--ONSP-INTERNAL-PLAYER-COLOR-TITLE);
+    margin-bottom: -0.16em;
+    margin-top: -0.1em;
+}
+.ONSP-Base .player .header .names .subtitle {
+    display: flex;
+    align-items: center;
+    font-size: 0.9em;
+    padding-left: 0.04em;
+    color: var(--ONSP-INTERNAL-PLAYER-COLOR-TITLE);
+    font-weight: 100;
+    margin-top: -0.16em;
+    margin-bottom: -0.1em;
+}
+.ONSP-Base .player .header .names .title.scroll {
+    /*animation: scrollTitle 8s cubic-bezier(0.5, 0, 0.50, 1) 0s infinite alternate both;*/
+    animation: scrollTitle var(--ONSP-INTERNAL-SCROLLER-TIMING-SUM-TITLE) linear 0s infinite alternate both;
+}
+.ONSP-Base .player .header .names .subtitle.scroll {
+    /*animation: scrollSubtitle 8s cubic-bezier(0.5, 0, 0.50, 1) 0s infinite alternate both;*/
+    animation: scrollSubtitle var(--ONSP-INTERNAL-SCROLLER-TIMING-SUM-SUBTITLE) linear 0s infinite alternate both;
+}
+@keyframes scrollTitle {
+    0%, 10%, 20% { transform:translateX(0px); }
+    80%, 90%, 100% { transform:translateX(calc(0px - var(--ONSP-INTERNAL-SCROLLER-SIZE-TITLE))); }
+}
+@keyframes scrollSubtitle {
+    0%, 10%, 20% { transform: translateX(0px); }
+    80%, 90%, 100% { transform: translateX(calc(0px - var(--ONSP-INTERNAL-SCROLLER-SIZE-SUBTITLE))); }
+}
+
+.ONSP-Base .player .swappable {
+    min-height: var(--ONSP-INTERNAL-PLAYER-SIZE-WIDTH);
+    height: var(--ONSP-INTERNAL-PLAYER-SIZE-WIDTH);
+    display: block;
+    position: relative;
+    width: var(--ONSP-INTERNAL-PLAYER-SIZE-WIDTH);
+    overflow: hidden;
+    border-radius: var(--ONSP-INTERNAL-PLAYER-MEDIA-CORNERS);
+}
+.ONSP-Base .player .swappable.canvas-scale {
+    transition: height var(--ONSP-INTERNAL-COVER-FADE-TIME) var(--ONSP-INTERNAL-COVER-FADE-EASING);
+    max-height: var(--ONSP-INTERNAL-COVER-SCALABLE-MAX-HEIGHT);
+}
+.ONSP-Base .player .swappable.canvas-scale .media {
+    top: 50%;
+    transform: translateY(-50%);
+    height: auto;
+}
+.ONSP-Base .player .swappable.canvas-contain .media {
+    height: 100%;
+    width: auto;
+    left: 0;
+    right: 0;
+    margin: 0 auto;
+}
+.ONSP-Base .player .swappable.canvas-cover .media {
+    width: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+}
+.ONSP-Base .player .swappable .media {
+    width: 100%;
+    opacity: 0;
+    z-index: 0;
+    transition: opacity var(--ONSP-INTERNAL-COVER-FADE-TIME) var(--ONSP-INTERNAL-COVER-FADE-EASING);
+    position: absolute;
+    border-radius: var(--ONSP-INTERNAL-PLAYER-MEDIA-CORNERS);
+    overflow: hidden;
+}
+.ONSP-Base .player .swappable.canvas-overlays::before {
+    content: "";
+    width: 3em;
+    height: 3em;
+    bottom: 0.6em;
+    left: 0.6em;
+    position: absolute;
+    opacity: 0;
+    border-radius: 0.32em;
+    z-index: 12;
+    transition: opacity var(--ONSP-INTERNAL-COVER-FADE-TIME) var(--ONSP-INTERNAL-COVER-FADE-EASING);
+    background-image: var(--ONSP-INTERNAL-CANVAS-ALBUM);
+    background-size: cover;
+    background-repeat: no-repeat;
+}
+.ONSP-Base .player .swappable.canvas-overlays:has(video.top)::before {
+    opacity: 0.8;
+}
+.ONSP-Base .player .swappable .top {
+    opacity: 1;
+    z-index: 10;
+}
+
+
+.ONSP-Base .player .footer {
+    display: flex;
+    flex-flow: column nowrap;
+    padding: 0 var(--ONSP-INTERNAL-PLAYER-PADDING-INFO);
+    gap: 0.14em;
+}
+.ONSP-Base .player .footer .progress {
+    height: 0.28em;
+    background-color: var(--ONSP-INTERNAL-PLAYER-COLOR-PROGRESS-BG);
+    display: flex;
+    border-radius: var(--ONSP-INTERNAL-PLAYER-PROGRESS-CORNERS);
+    overflow: hidden;
+    transition: var(--ONSP-INTERNAL-LOWPOWER-TRANSITIONS) var(--ONSP-INTERNAL-PLAYER-TRANSITION-TIME);
+}
+.ONSP-Base .player .footer .bar {
+    background-color: var(--ONSP-INTERNAL-PLAYER-COLOR-PROGRESS);
+    border-radius: var(--ONSP-INTERNAL-PLAYER-PROGRESS-CORNERS);
+    transition: var(--ONSP-INTERNAL-LOWPOWER-TRANSITIONS) var(--ONSP-INTERNAL-PLAYER-TRANSITION-TIME), width var(--ONSP-INTERNAL-PLAYER-UPDATE-TIME) var(--ONSP-INTERNAL-PLAYER-PROGRESS-ANIMATION) 0s;
+}
+.ONSP-Base .player .footer .target {
+    color: #e8e8e8;
+    display: flex;
+    align-items: center;
+    flex-flow: row nowrap;
+    gap: 0.2em;
+}
+.ONSP-Base .player .footer .target .device {
+    flex: 1;
+    font-weight: 400;
+    font-size: 0.8em;
+}
+.ONSP-Base .player .footer .target .time {
+    font-weight: 100;
+    font-size: 0.8em;
+}
+.ONSP-Base .player .footer .target .icon {
+    display: flex;
+    height: 0.9em;
+    width: 0.9em;
+}
+.ONSP-Base .player .experimental {
+    display: flex;
+    flex-flow: row nowrap;
+    color: #FFF;
+    background-color: var(--ONSP-INTERNAL-PLAYER-CODE-COLOR);
+    align-items: center;
+    /* As this is an experimental feature, this workaround to set the BG and
+       rounded corners is used (the +0.1em -0.1em) (the -0.5em come from the
+       flex gap of the module) (Future: Include it inside cover el) */
+    margin-top: var(--ONSP-INTERNAL-PLAYER-CODE-MARGIN);
+    padding-top: var(--ONSP-INTERNAL-PLAYER-CODE-PADDING);
+    justify-content: center;
+    border-radius: var(--ONSP-INTERNAL-PLAYER-MEDIA-CORNERS);
+    border-top-left-radius: var(--ONSP-INTERNAL-PLAYER-MEDIA-CORNERS);
+    border-top-right-radius: var(--ONSP-INTERNAL-PLAYER-MEDIA-CORNERS);
+    transition: var(--ONSP-INTERNAL-LOWPOWER-TRANSITIONS) var(--ONSP-INTERNAL-PLAYER-TRANSITION-TIME); /* ALL */
+}
+.ONSP-Base .player .experimental .code {
+    aspect-ratio: 4 / 1;
+    width: 60%;
+}
+.ONSP-Base .player .experimental .code svg:not(:first-child) {
+    display: none;
+}
+.ONSP-Base .player .experimental .code svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+/* PRIVATE SESSION */
+.ONSP-Base .privateSession {
+    display: flex;
+    gap: 0.32em;
+    flex-flow: row nowrap;
+    align-items: center;
+    color: var(--ONSP-COLORSYSTEM-EXAMPLE);
+}
+.ONSP-Base .privateSession .text {
+    font-size: 1.2em;
+    font-weight: 100;
+}
+.ONSP-Base .privateSession .icon {
+    height: 1.4em;
+    width: 1.4em;
+}
+
+/* USERAFFINITY */
+.ONSP-Base .useraffinity {
+    display: flex;
+    flex-flow: column nowrap;
+    align-items: stretch;
+    gap: 0.6em;
+    animation: var(--ONSP-INTERNAL-LOWPOWER-FADEIN) var(--ONSP-INTERNAL-PLAYER-TRANSITION-TIME);
+}
+.ONSP-Base .useraffinity .affinity {
+    display: flex;
+    justify-content: center;
+}
+.ONSP-Base .useraffinity .affinity .grid {
+    width: 14.8em;
+    height: 14.8em;
+    animation: none;
+}
+.ONSP-Base .useraffinity .user .profile {
+    animation: none;
+    padding: 0em 0.2em;
+    background-color: transparent;
+}
+.ONSP-Base .useraffinity .user .profile .image {
+    width: calc(var(--ONSP-INTERNAL-USER-IMAGE-SYNC-WIDTH) * 0.80);
+    height: calc(var(--ONSP-INTERNAL-USER-IMAGE-SYNC-HEIGHT) * 0.80);
+}
+.ONSP-Base .useraffinity .user .profile .data .title {
+    font-size: 0.9em;
+    margin-bottom: -6px;
+    color: var(--ONSP-COLORSYSTEM-EXAMPLE);
+}
+.ONSP-Base .useraffinity .user .profile .data .subtitle {
+    font-size: 0.8em;
+}
+.ONSP-Base .externalhidden {
+    display: none;
+}
+
+/* AFFINITY */
+.ONSP-Base .affinity .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    width: 15.2em;
+    height: 15.2em;
+    gap: 0.2em;
+    animation: var(--ONSP-INTERNAL-LOWPOWER-FADEIN) var(--ONSP-INTERNAL-PLAYER-TRANSITION-TIME);
+}
+.ONSP-Base .affinity .grid .gridElement {
+    background-size: cover;
+    background-position: center;
+    transition: var(--ONSP-INTERNAL-LOWPOWER-TRANSITIONS) 1.2s;
+    border-radius: 0.52em;
+    width: 100%;
+    height: 100%;
+}
+
+/* USER */
+.ONSP-Base .user .profile {
+    display: flex;
+    align-items: center;
+    flex-flow: row nowrap;
+    gap: 0.5em;
+    background-color: var(--ONSP-INTERNAL-USER-BG-COLOR);
+    padding: 0.4em 1em 0.4em 0.4em;
+    border-radius: 1.18em;
+    transition: var(--ONSP-INTERNAL-LOWPOWER-TRANSITIONS) 3s;
+    animation: var(--ONSP-INTERNAL-LOWPOWER-FADEIN) var(--ONSP-INTERNAL-PLAYER-TRANSITION-TIME);
+}
+.ONSP-Base .user .profile .image {
+    width: var(--ONSP-INTERNAL-USER-IMAGE-SYNC-WIDTH);
+    height: var(--ONSP-INTERNAL-USER-IMAGE-SYNC-HEIGHT);
+    background-size: cover;
+    transition: var(--ONSP-INTERNAL-LOWPOWER-TRANSITIONS) 2s;
+    border-radius: 0.9em;
+    background-image: var(--ONSP-INTERNAL-USER-IMAGE);
+}
+.ONSP-Base .user .profile .image .letter {
+    color: var(--ONSP-COLORSYSTEM-EXAMPLE);
+    font-weight: 300;
+    font-size: 1.3em;
+}
+.ONSP-Base .user .profile .image .letter:before {
+    content: var(--ONSP-INTERNAL-USER-LETTER);
+}
+.ONSP-Base .user .profile .data {
+    display: flex;
+    flex-flow: column nowrap;
+    align-items: flex-start;
+    justify-content: center;
+}
+.ONSP-Base .user .profile .data .title {
+    font-size: 1em;
+    font-weight: 400;
+    margin-bottom: -4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2em;
+}
+.ONSP-Base .user .profile .data .title .badge {
+    display: inline-flex;
+    font-size: 0.6em;
+    color: var(--ONSP-BRANDCOLOR-SPOTIFY); /* Spotify Green */
+}
+.ONSP-Base .user .profile .data .title .badge:before {
+    content: var(--ONSP-INTERNAL-USER-PRODUCT);
+}
+.ONSP-Base .user .profile .data .title:before {
+    content: var(--ONSP-INTERNAL-USER-NAME);
+    color: var(--ONSP-INTERNAL-COLOR-BRIGHT);
+}
+.ONSP-Base .user .profile .data .subtitle {
+    font-size: 0.86em;
+    font-weight: 300;
+}
+.ONSP-Base .user .profile .data .subtitle:before {
+    content: var(--ONSP-INTERNAL-USER-SUBTITLE);
+    color: var(--ONSP-INTERNAL-COLOR-MUTED);
+}
+
+/* LOGO */
+.ONSP-Base .logowide {
+    display: flex;
+}
+.ONSP-Base .logowide .logo {
+    max-width: 12em;
+}
+
+/* NON STATIC ANIMATIONS */
+.ONSP-Base .animation-slide {
+    animation-name: slideFromBottom;
+    animation-duration: var(--ONSP-INTERNAL-PLAYER-TEXT-TIME);
+    animation-fill-mode: forwards;
+    overflow: hidden;
+}
+.ONSP-Base .animation-text {
+    animation-name: fadein; /* Use fade in as it includes an icon, no text morph */
+    animation-duration: var(--ONSP-INTERNAL-PLAYER-TEXT-TIME);
+    animation-fill-mode: forwards;
+}
+.ONSP-Base .animation-shine {
+    animation-name: blink;
+    animation-iteration-count: 8;
+    animation-duration: 1600ms;
+    animation-timing-function: cubic-bezier(0.42, 0, 0.93, 0.98);
+}
+
+/* ANIMATIONS */
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideFromBottom { from { transform: translate3d(0, 100%, 0); visibility: visible; } to { transform: translate3d(0, 0, 0); } }
+@keyframes shine { 0% { opacity: 1; } 50% { opacity: 0.88; } 100% { opacity: 1; } }

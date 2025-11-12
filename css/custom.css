@@ -1,0 +1,25 @@
+/* Custom CSS for MagicMirror - Formula 1 Module Width Reduction */
+
+/* Hide constructor/team logo column (first column) - ONLY in standings rows with 6 columns */
+.MMM-Formula1 tbody tr td:nth-child(1):nth-last-child(6),
+.MMM-Formula1 thead tr td:nth-child(1):nth-last-child(6) {
+  display: none;
+}
+
+/* Hide flag column (fourth column) - ONLY in standings rows with 6 columns */
+.MMM-Formula1 tbody tr td:nth-child(4):nth-last-child(3),
+.MMM-Formula1 thead tr td:nth-child(4):nth-last-child(3) {
+  display: none;
+}
+
+/* Slightly reduce font size for Formula 1 module to save width */
+.MMM-Formula1 {
+  font-size: 90%;
+}
+
+/* Match race details font sizing with standings */
+.MMM-Formula1 table + table td,
+.MMM-Formula1 table + table span {
+  font-size: inherit;
+  line-height: inherit;
+}

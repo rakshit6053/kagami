@@ -1,0 +1,35 @@
+{
+    "name": "mmm-onspotify",
+    "version": "6.0.0",
+    "description": "A MagicMirror² module that displays what you are listening to using the Spotify Connect API.",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Fabrizz/MMM-OnSpotify.git"
+    },
+    "keywords": [
+        "MagicMirror",
+        "MagicMirror²",
+        "MM2",
+        "Spotify",
+        "Spotify Connect",
+        "Mirror",
+        "Smart Mirror",
+        "Module"
+    ],
+    "author": {
+        "name": "Fabrizz",
+        "url": "https://fabriz.co/"
+    },
+    "bugs": {
+        "url": "https://github.com/Fabrizz/MMM-OnSpotify/issues"
+    },
+    "homepage": "https://github.com/Fabrizz/MMM-OnSpotify#readme",
+    "license": "MIT",
+    "dependencies": {
+        "dompurify": "^3.2.6",
+        "node-fetch": "^2.6.9"
+    },
+    "scripts": {
+        "auth": "cd auth && node authorization.js"
+    }
+}

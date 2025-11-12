@@ -2,6 +2,7 @@
 *.mjs
 .husky/pre-commit
 .prettierignore
+.stylelintignore
 /config
 /coverage
 package-lock.json

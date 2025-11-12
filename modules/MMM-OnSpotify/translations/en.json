@@ -1,0 +1,20 @@
+{
+    "DISPLAY_PRIVATE": "Private Spotify session",
+    "FILTERED_PLAYING": "Nothing is playing in this room.",
+    "PRODUCT_WARNING": "The current account is not using Spotify Premium. This module requires a Premium account.",
+    "CONNECTION_WARNING": "There was a connection error. Slowing the polling of api.spotify/...",
+    "CONNECTION_ERROR": "Connection errors persist. Slowing the polling rate to <onError> seconds. Emptying player as the data is outdated.",
+    "VIBRANT_NOT_LOADED": "[VENDOR] Vibrant library did not load correctly.",
+    "USER_CSS_ERROR": "An error ocurred while extracting CSS information. (The duration of animations/transitions should be in \"ms\")",
+    "STABLISHING_CONNECTION": "Connecting to Spotify...",
+    "NOTHING_PLAYING": "Nothing is playing",
+    "SPOTIFY_HEADER": "MMM-OnSpotify",
+    "DEBUG_COLORS": "<showDebugPalette> is enabled. The module will log Vibrant data when color processing is requested.",
+    "SPOTIFYCODE_EXPERIMENTAL": "<spotifyCodeExperimentalShow> is enabled. The API used is not documented, as its an Spotify service. This service could stop working at any time. (https://github.com/Fabrizz/MMM-OnSpotify#other)",
+    "RESUME": "Resuming module",
+    "SUSPEND": "Suspending module",
+    "LIVELYRICS_NOTICE": "MMM-LiveLyrics found! - LiveLyrics should log the connection to this module. (https://github.com/Fabrizz/MMM-LiveLyrics)",
+    "CSSOVERRIDE_NOTICE": "You are overriding default MM2 CSS variables. Check spelling errors (and contrast issues)",
+    "CSSOVERRIDE_MALFORMED": "There was an error parsing your \"experimentalCSSOverridesForMM2\" array. This entry should be an array, check the docs for more information.",
+    "BACKEND_REAUTH": "Module backend recovered from restart/stale state. (Backend requested credentials with different UUID)"
+}

@@ -1,0 +1,4 @@
+# Ignore third-party modules
+modules/MMM-OnSpotify/**
+modules/MMM-Formula1/**
+
