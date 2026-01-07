@@ -32,7 +32,7 @@ const GEMINI_INPUT_MIME_TYPE = `audio/pcm;rate=${INPUT_SAMPLE_RATE}`
 const GEMINI_SESSION_HANDLE = "magic_mirror"
 
 
-const GEMINI_MODEL = 'gemini-2.0-flash-live-001'
+const GEMINI_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025'
 // const API_VERSION = 'v1alpha'
 
 process.env.DEBUG = 'record';
