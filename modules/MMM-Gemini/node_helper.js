@@ -138,10 +138,11 @@ module.exports = NodeHelper.create({
             totalDuration: this.currentMeditationPlan.totalDuration
         });
         
-        // Send meditation context immediately to AI
-        setTimeout(() => {
-            this.sendMeditationContextToAI();
-        }, 1000); // Wait for recording to be fully active
+        // DISABLED: Text-based context breaks audio-only model (gemini-2.5-flash-native-audio-preview-12-2025)
+        // Use function responses instead to guide the AI naturally
+        // setTimeout(() => {
+        //     this.sendMeditationContextToAI();
+        // }, 1000);
     },
 
     // Start workout from selected plan (NEW WORKFLOW)
@@ -155,7 +156,7 @@ module.exports = NodeHelper.create({
             if (!nextWorkout) {
                 this.log(`All workouts completed for plan ${planId}`);
                 // AI should announce completion through natural response
-                return;
+                return { result: "All workouts in this plan are complete. Please choose another fitness plan." };
             }
             
             this.log(`Found incomplete workout: Week ${nextWorkout.weekNumber}, Day ${nextWorkout.dayNumber} - ${nextWorkout.focus}`);
@@ -184,12 +185,16 @@ module.exports = NodeHelper.create({
                 focus: workout.focus
             });
             
-            // Send fitness context immediately to AI
-            this.sendFitnessContextToAI();
+            // Return simple success message - AI will use system prompt for workout details
+            const firstExercise = workout.exercises[0];
+            return {
+                result: `Workout started! Say: "Great! Let's start your ${workout.name} workout. This is Week ${workout.weekNumber}, Day ${workout.dayNumber} focusing on ${workout.focus}. We have ${workout.totalExercises} exercises to do today. First exercise: ${firstExercise.exercise}. Do ${firstExercise.reps} repetitions. ${firstExercise.instruction} Let me know when you're done by saying 'done' or 'finished'."`
+            };
             
         } catch (error) {
             this.error("Error starting workout from plan:", error);
             this.sendToFrontend("HELPER_ERROR", { error: `Failed to start workout: ${error.message}` });
+            return { result: `Error starting workout: ${error.message}` };
         }
     },
 
@@ -203,8 +208,7 @@ module.exports = NodeHelper.create({
             
             if (!nextSession) {
                 this.log(`All sessions completed for plan ${planId}`);
-                // AI should announce completion through natural response
-                return;
+                return { result: "All sessions in this plan are complete. Please choose another wellness plan." };
             }
             
             this.log(`Found incomplete session: Week ${nextSession.weekNumber}, Day ${nextSession.dayNumber} - ${nextSession.focus}`);
@@ -231,12 +235,16 @@ module.exports = NodeHelper.create({
                 focus: session.focus
             });
             
-            // Send meditation context immediately to AI
-            this.sendMeditationContextToAI();
+            // Return simple success message - AI will use system prompt for session details
+            const firstStep = session.steps[0];
+            return {
+                result: `Session started! Say: "Great! Let's begin your ${session.planName} session. This is Week ${session.weekNumber}, Day ${session.dayNumber} focusing on ${session.focus}. We have ${session.totalSteps} steps today. First step: ${firstStep.instruction} Let me know when you're ready to continue by saying 'next' or 'continue'."`
+            };
             
         } catch (error) {
             this.error("Error starting meditation from plan:", error);
             this.sendToFrontend("HELPER_ERROR", { error: `Failed to start meditation: ${error.message}` });
+            return { result: `Error starting meditation: ${error.message}` };
         }
     },
 
@@ -267,10 +275,11 @@ module.exports = NodeHelper.create({
                 workoutName: this.currentWorkoutPlan.name
             });
             
-            // Send fitness context immediately to AI
-            setTimeout(() => {
-                this.sendFitnessContextToAI();
-            }, 1000); // Wait for recording to be fully active
+            // DISABLED: Text-based context breaks audio-only model (gemini-2.5-flash-native-audio-preview-12-2025)
+            // Use function responses instead to guide the AI naturally
+            // setTimeout(() => {
+            //     this.sendFitnessContextToAI();
+            // }, 1000);
             
         } catch (error) {
             this.error("Error starting fitness session:", error);
@@ -420,8 +429,8 @@ You can help with:
 - Calendar-related info (e.g., "What day is it?")
 - Motivational quotes, jokes, or fun facts
 - Casual small talk or greetings
-- Guided meditation/wellness sessions: When a user asks to meditate or start a meditation/wellness session, CALL list_wellness_plans to fetch their plans from the database. You will receive ONLY the plans that exist for this specific user - DO NOT mention any other plans or make up plans. Present ONLY the plans from the retrieved list to the user and ask which one they want to do. After they choose, extract the Plan ID from the list and CALL select_wellness_plan with the correct UUID Plan ID (never read UUIDs out loud - only use them for function calls)
-- Fitness workout sessions: When a user asks to start a workout or exercise, CALL list_fitness_plans to fetch their plans from the database. You will receive ONLY the plans that exist for this specific user - DO NOT mention any other plans or make up plans. Present ONLY the plans from the retrieved list to the user and ask which one they want to do. After they choose, extract the Plan ID from the list and CALL select_fitness_plan with the correct UUID Plan ID (never read UUIDs out loud - only use them for function calls)
+- Guided meditation/wellness sessions: When a user asks to meditate or start a meditation/wellness session, present the wellness plans listed in your context below and ask which one they want to do. After they choose, extract the Plan ID from the list and CALL select_wellness_plan with the correct UUID Plan ID (never read UUIDs out loud - only use them for function calls)
+- Fitness workout sessions: When a user asks to start a workout or exercise, present the fitness plans listed in your context below and ask which one they want to do. After they choose, extract the Plan ID from the list and CALL select_fitness_plan with the correct UUID Plan ID (never read UUIDs out loud - only use them for function calls)
 - Fashion & Outfit Suggestions: When a user asks for outfit suggestions, advice on what to wear, or fashion help, you should engage in a conversational manner. Ask relevant questions to understand their needs:
   * "What's the weather like today?" or "Are you dressing for warm or cold weather?"
   * "What's the occasion?" (e.g., work, casual outing, formal event, workout)
@@ -470,10 +479,26 @@ Your default language is English, but you should respond in the input audio lang
             basePrompt += `\n\n${fitnessContext}`;
         }
 
-        // Add available plans context if plans were just fetched
-        if (this.availablePlans && this.availablePlans.length > 0 && !this.fitnessMode) {
-            const plansContext = this.buildAvailablePlansContext();
-            basePrompt += `\n\n${plansContext}`;
+        // ALWAYS add fitness plans context (if not in active fitness session)
+        if (!this.fitnessMode && this.supabaseDataReady) {
+            const { getAllFitnessPlans } = require('./lib/fitnessPlans');
+            const fitnessPlans = getAllFitnessPlans();
+            if (fitnessPlans && fitnessPlans.length > 0) {
+                this.availablePlans = fitnessPlans; // Store for later use
+                const plansContext = this.buildAvailablePlansContext();
+                basePrompt += `\n\n${plansContext}`;
+            }
+        }
+
+        // ALWAYS add wellness plans context (if not in active meditation session)
+        if (!this.meditationMode && this.supabaseDataReady) {
+            const { getAllWellnessPlans } = require('./lib/meditationPlan');
+            const wellnessPlans = getAllWellnessPlans();
+            if (wellnessPlans && wellnessPlans.length > 0) {
+                this.availableWellnessPlans = wellnessPlans; // Store for later use
+                const wellnessPlansContext = this.buildAvailableWellnessPlansContext();
+                basePrompt += `\n\n${wellnessPlansContext}`;
+            }
         }
 
         // ALWAYS add wardrobe context for fashion suggestions
@@ -583,6 +608,32 @@ When user selects a plan (by number, name, or target area), identify the correct
 IMPORTANT: You MUST call the select_fitness_plan function with the correct plan ID. Do not just acknowledge - actually select the plan!
 
 After calling select_fitness_plan, the system will automatically find the next incomplete workout from that plan and start it. You don't need to ask for specific exercises or days.`;
+    },
+
+    // Build available wellness plans context
+    buildAvailableWellnessPlansContext() {
+        if (!this.availableWellnessPlans || this.availableWellnessPlans.length === 0) return "";
+        
+        const plansList = this.availableWellnessPlans.map((plan, index) => {
+            const focusText = Array.isArray(plan.focus) ? plan.focus.join(', ') : plan.focus;
+            return `${index + 1}. ${plan.name} - Focus: ${focusText} - ${plan.duration} (ID: ${plan.id})`;
+        }).join('\n');
+        
+        return `
+
+AVAILABLE WELLNESS/MEDITATION PLANS FROM SUPABASE:
+
+The user has ${this.availableWellnessPlans.length} wellness plan(s) available:
+
+${plansList}
+
+ACTION: Present these plans to the user naturally and ask which one they'd like to do today.
+
+When user selects a plan (by number, name, or focus area), identify the correct plan ID and CALL select_wellness_plan function with that planId.
+
+IMPORTANT: You MUST call the select_wellness_plan function with the correct plan ID. Do not just acknowledge - actually select the plan!
+
+After calling select_wellness_plan, the system will automatically find the next incomplete meditation session from that plan and start it. You don't need to ask for specific steps or days.`;
     },
 
     // Build wardrobe context for fashion suggestions
@@ -1033,15 +1084,6 @@ It is the COMPLETE and AUTHORITATIVE list. Trust it. Use ONLY what's there.
                     }, {
                         functionDeclarations: [
                             {
-                                name: "list_wellness_plans",
-                                description: "List all available wellness/meditation plans for the user to choose from. Call this when user wants to start a meditation or wellness session.",
-                                parameters: {
-                                    type: Type.OBJECT,
-                                    properties: {},
-                                    required: []
-                                }
-                            },
-                            {
                                 name: "select_wellness_plan",
                                 description: "Select a specific wellness/meditation plan and start the next incomplete session. Call after user chooses a plan from the list. IMPORTANT: planId must be the UUID from the plan list, NOT the plan name.",
                                 parameters: {
@@ -1123,15 +1165,6 @@ It is the COMPLETE and AUTHORITATIVE list. Trust it. Use ONLY what's there.
                             {
                                 name: "switch_to_open_mic",
                                 description: "Switch to open mic (continuous listening) mode. Use when user says 'switch to open mic', 'enable open mic', 'continuous listening', 'open mic mode', etc.",
-                                parameters: {
-                                    type: Type.OBJECT,
-                                    properties: {},
-                                    required: []
-                                }
-                            },
-                            {
-                                name: "list_fitness_plans",
-                                description: "List all available fitness plans for the user to choose from. Call this when user wants to start a workout.",
                                 parameters: {
                                     type: Type.OBJECT,
                                     properties: {},
@@ -1691,54 +1724,6 @@ It is the COMPLETE and AUTHORITATIVE list. Trust it. Use ONLY what's there.
                      this.warn("generate_image call missing 'image_prompt' argument")
                 }
                 break
-            case "list_wellness_plans":
-                {
-                    this.log("Listing wellness plans for user");
-                    try {
-                        const { getAllWellnessPlans } = require('./lib/meditationPlan');
-                        const plans = getAllWellnessPlans();
-                        
-                        if (!plans || plans.length === 0) {
-                            this.log("No wellness plans found");
-                            return;
-                        }
-                        
-                        // Store plans for AI context
-                        this.availableWellnessPlans = plans;
-                        this.log(`Found ${plans.length} wellness plans in cache:`, plans.map(p => p.name).join(', '));
-                        
-                        // Send context to AI with the plans list including IDs
-                        if (this.liveSession && this.connectionOpen) {
-                            // User-friendly text to speak (numbered list format)
-                            const speakText = plans.map((p, i) => 
-                                `Option ${i + 1}: ${p.name}, focusing on ${Array.isArray(p.focus) ? p.focus.join(' and ') : p.focus}, a ${p.duration} program`
-                            ).join('. ');
-                            
-                            // Internal mapping for AI to use (not spoken)
-                            const planMapping = plans.map((p, i) => 
-                                `Option ${i + 1} -> Plan ID: ${p.id}`
-                            ).join('\n');
-                            
-                            const contextText = `CRITICAL INSTRUCTION: You have retrieved exactly ${plans.length} wellness plan(s) from the database for this user. DO NOT mention any other plans or make up additional plans.
-
-[SPEAK EXACTLY THIS TO USER]:
-"You have ${plans.length} wellness plan${plans.length > 1 ? 's' : ''} available. ${speakText}. Which one would you like to do today?"
-
-[INTERNAL PLAN ID MAPPING - DO NOT READ THESE UUIDs OUT LOUD]:
-${planMapping}
-
-[NEXT STEP]: Wait for the user to choose a plan by saying a number (1, 2, etc.) or the plan name. Then use the Plan ID from the mapping above to call select_wellness_plan. DO NOT read the UUID out loud - only use it for the function call.`;
-                            
-                            await this.liveSession.sendRealtimeInput({ text: contextText });
-                            this.log("Sent wellness plans context to AI");
-                        }
-                    } catch (error) {
-                        this.error("Error listing wellness plans:", error);
-                        this.availableWellnessPlans = [];
-                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to list wellness plans: ${error.message}` });
-                    }
-                }
-                break;
             case "select_wellness_plan":
                 {
                     const { planId } = args;
@@ -1746,13 +1731,44 @@ ${planMapping}
                     try {
                         if (!planId) {
                             this.log("No plan ID provided");
+                            if (this.liveSession && this.connectionOpen) {
+                                await this.liveSession.sendToolResponse({
+                                    functionResponses: [{
+                                        id: functioncall.id,
+                                        name: functioncall.name,
+                                        response: { result: "No plan ID provided" }
+                                    }]
+                                });
+                            }
                             return;
                         }
                         
-                        await this.startMeditationFromPlan(planId);
+                        const result = await this.startMeditationFromPlan(planId);
+                        
+                        // Send function response back to AI
+                        if (this.liveSession && this.connectionOpen) {
+                            await this.liveSession.sendToolResponse({
+                                functionResponses: [{
+                                    id: functioncall.id,
+                                    name: functioncall.name,
+                                    response: result
+                                }]
+                            });
+                            this.log("Sent meditation start response to AI");
+                        }
                     } catch (error) {
                         this.error("Error selecting wellness plan:", error);
                         this.sendToFrontend("HELPER_ERROR", { error: `Failed to select wellness plan: ${error.message}` });
+                        
+                        if (this.liveSession && this.connectionOpen) {
+                            await this.liveSession.sendToolResponse({
+                                functionResponses: [{
+                                    id: functioncall.id,
+                                    name: functioncall.name,
+                                    response: { result: `Failed to start meditation: ${error.message}` }
+                                }]
+                            });
+                        }
                     }
                 }
                 break;
@@ -1908,65 +1924,6 @@ ${planMapping}
                     }
                 }
                 break;
-            case "list_fitness_plans":
-                {
-                    this.log("Listing available fitness plans from cache");
-                    try {
-                        const { getAllFitnessPlans } = require('./lib/fitnessPlans');
-                        
-                        // Get plans from cache (no async fetch!)
-                        const plans = getAllFitnessPlans();
-                        
-                        if (!plans || plans.length === 0) {
-                            this.log("No fitness plans found in cache");
-                            // Store empty plans list for AI to respond appropriately
-                            this.availablePlans = [];
-                            
-                            // Send context to AI
-                            if (this.liveSession && this.connectionOpen) {
-                                await this.liveSession.sendRealtimeInput({ 
-                                    text: "No fitness plans found in your account. Please add some fitness plans first." 
-                                });
-                            }
-                            return;
-                        }
-                        
-                        // Store plans for AI context
-                        this.availablePlans = plans;
-                        this.log(`Found ${plans.length} fitness plans in cache:`, plans.map(p => p.name).join(', '));
-                        
-                        // Send context to AI with the plans list including IDs
-                        if (this.liveSession && this.connectionOpen) {
-                            // User-friendly text to speak (numbered list format)
-                            const speakText = plans.map((p, i) => 
-                                `Option ${i + 1}: ${p.name}, which targets ${p.targetAreas.join(' and ')}, a ${p.duration} week program`
-                            ).join('. ');
-                            
-                            // Internal mapping for AI to use (not spoken)
-                            const planMapping = plans.map((p, i) => 
-                                `Option ${i + 1} -> Plan ID: ${p.id}`
-                            ).join('\n');
-                            
-                            const contextText = `CRITICAL INSTRUCTION: You have retrieved exactly ${plans.length} fitness plan(s) from the database for this user. DO NOT mention any other plans or make up additional plans.
-
-[SPEAK EXACTLY THIS TO USER]:
-"You have ${plans.length} fitness plan${plans.length > 1 ? 's' : ''} available. ${speakText}. Which one would you like to do today?"
-
-[INTERNAL PLAN ID MAPPING - DO NOT READ THESE UUIDs OUT LOUD]:
-${planMapping}
-
-[NEXT STEP]: Wait for the user to choose a plan by saying a number (1 or 2) or the plan name. Then use the Plan ID from the mapping above to call select_fitness_plan. DO NOT read the UUID out loud - only use it for the function call.`;
-                            
-                            await this.liveSession.sendRealtimeInput({ text: contextText });
-                            this.log("Sent fitness plans context to AI");
-                        }
-                    } catch (error) {
-                        this.error("Error listing fitness plans:", error);
-                        this.availablePlans = [];
-                        this.sendToFrontend("HELPER_ERROR", { error: `Failed to list fitness plans: ${error.message}` });
-                    }
-                }
-                break;
             case "select_fitness_plan":
                 {
                     const planId = args.planId;
@@ -1974,22 +1931,61 @@ ${planMapping}
                     
                     if (!planId) {
                         this.log("Plan selection attempted without planId");
+                        if (this.liveSession && this.connectionOpen) {
+                            await this.liveSession.sendToolResponse({
+                                functionResponses: [{
+                                    id: functioncall.id,
+                                    name: functioncall.name,
+                                    response: { result: "No plan ID provided" }
+                                }]
+                            });
+                        }
                         return;
                     }
                     
                     // Check if fitness session is already active
                     if (this.fitnessMode) {
                         this.log("Fitness session already active, ignoring duplicate request");
+                        if (this.liveSession && this.connectionOpen) {
+                            await this.liveSession.sendToolResponse({
+                                functionResponses: [{
+                                    id: functioncall.id,
+                                    name: functioncall.name,
+                                    response: { result: "A fitness session is already in progress. Please finish or end your current workout first." }
+                                }]
+                            });
+                        }
                         return;
                     }
                     
                     this.log(`Starting fitness session for plan: ${planName} (${planId})`);
                     try {
-                        await this.startWorkoutFromPlan(planId);
-                        // startWorkoutFromPlan already sends fitness context to AI
+                        const result = await this.startWorkoutFromPlan(planId);
+                        
+                        // Send function response back to AI
+                        if (this.liveSession && this.connectionOpen) {
+                            await this.liveSession.sendToolResponse({
+                                functionResponses: [{
+                                    id: functioncall.id,
+                                    name: functioncall.name,
+                                    response: result
+                                }]
+                            });
+                            this.log("Sent workout start response to AI");
+                        }
                     } catch (error) {
                         this.error("Error starting fitness session:", error);
                         this.sendToFrontend("HELPER_ERROR", { error: `Failed to start fitness: ${error.message}` });
+                        
+                        if (this.liveSession && this.connectionOpen) {
+                            await this.liveSession.sendToolResponse({
+                                functionResponses: [{
+                                    id: functioncall.id,
+                                    name: functioncall.name,
+                                    response: { result: `Failed to start workout: ${error.message}` }
+                                }]
+                            });
+                        }
                     }
                 }
                 break;
@@ -2090,10 +2086,13 @@ ${planMapping}
 
         let content = message?.serverContent?.modelTurn?.parts?.[0];
 
-        // Handle Text
+        // Handle Text (DISABLED - Audio-only mode)
+        // The Gemini 2.5 model outputs both audio and text by default
+        // Since we only want audio responses, we log text but don't display it
         if (content?.text) {
-            this.log(`Extracted text: ` + content.text);
-            this.sendToFrontend("GEMINI_TEXT_RESPONSE", { text: content.text });
+            this.log(`Extracted text (not displayed): ` + content.text);
+            // Text display disabled for audio-only mode
+            // this.sendToFrontend("GEMINI_TEXT_RESPONSE", { text: content.text });
         }
 
         // Extract and Queue Audio Data
