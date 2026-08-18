@@ -63,7 +63,7 @@ This allows the MagicMirror to fetch data using the anonymous API key without re
 
 1. User activates fitness mode via voice command
 2. AI agent calls `buildWorkoutPlan(target, userParams)`
-3. Function fetches fitness plans from Supabase for user ID: `6903aa9c-f7a8-4820-8d01-9a678f1c8832`
+3. Function fetches fitness plans from Supabase for user ID: ``
 4. Finds best matching plan based on target areas (e.g., "legs", "shoulders")
 5. Transforms plan data into workout format
 6. AI reads out exercises with instructions and manages rest periods
@@ -80,7 +80,7 @@ This allows the MagicMirror to fetch data using the anonymous API key without re
 ## User Data
 
 The system is currently configured to fetch data for:
-- **User ID**: `6903aa9c-f7a8-4820-8d01-9a678f1c8832`
+- **User ID**: ``
 - **Name**: Rakshit
 - **Age**: 20
 - **Location**: Bengaluru
