@@ -116,7 +116,7 @@ To change the user ID or update Supabase credentials, edit:
 ```javascript
 // lib/supabaseConfig.js
 const SUPABASE_CONFIG = {
-  url: 'https://agdwmrzewhgopfeinydh.supabase.co',
+  url: '',
   anonKey: 'your-anon-key-here',
   userId: 'your-user-id-here'
 };
