@@ -16,10 +16,10 @@ limitations under the License.
 
 // Supabase configuration
 const SUPABASE_CONFIG = {
-  url: 'https://agdwmrzewhgopfeinydh.supabase.co',
-  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnZHdtcnpld2hnb3BmZWlueWRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU5NTA0NTIsImV4cCI6MjA3MTUyNjQ1Mn0.MZQFY9k-K-0vajZKppxKAPzDINvQYPA451uGTnqOVpM',
-  // User ID for the MagicMirror user (Rakshit)
-  userId: '6903aa9c-f7a8-4820-8d01-9a678f1c8832'
+  url: '',
+  anonKey: '',
+  // User ID for the MagicMirror user
+  userId: ''
 };
 
 module.exports = { SUPABASE_CONFIG };
