@@ -113,17 +113,17 @@ let config = {
             module: 'MMM-Gemini',
             position: 'lower_third',
             config: {
-                    apiKey: 'AIzaSyASQISIXqSw71aFq7CwU42vWcE3cDZ99jE',
+                    apiKey: 'Enter Key Here',
             }
     	},
 		{
 			module: "MMM-OnSpotify",
 			position: "top_right",
 			config: {
-				clientID: "d9b2a00ea3dd4013859bbc714140636b",
-				clientSecret: "42cf04cfe1054927ad4b510bd4698e38",
-				accessToken: "BQDRqiTu_Dimv8wG8-CfuOh-r2o6AwGD6ON5bWEKQhu__zZE04F9j3hpni6Ry9Y9dtAOWN4NCM1OwfagL6WQikNp2G4LDWjwgHigI78byJnP4PYeTbJWg1e_23s5aWpJ5UgX-5V49FMaTHJoQ3WKrqATOK04hzwR7j7ZxV9XDj96gDggYYzQ88bo1oSz9UfTHAyk6l7uX2IgCQ8vA6fMNtPZ50Hb2HruVp71OOFg5a4XXgx8s7OxRoRki10S0z7OHuEff6khgg",
-				refreshToken: "AQC2FhkU8JETjQ2gERpTY7_YiY9MDulsNHD2Xl9XLkkAjT7PHC9ZHuWW0H5HKbaglitQ2bBd2XymT6I33hdpcpmO-MoHCQT0PvDcKtND8vQf3SOfcfaSsyMNNH7AmG4YYds"
+				clientID: "",
+				clientSecret: "",
+				accessToken: "",
+				refreshToken: ""
 			}
 		}
 	]
